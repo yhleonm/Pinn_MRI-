@@ -1,0 +1,42 @@
+# Configuracion por defecto para PINN-MRI K-Space + Helmholtz EPT
+physics:
+  b0_tesla: 3.0
+  gyromagnetic_ratio_mhz_t: 42.58
+  larmor_freq_mhz: 127.74          # f0 = 127.74 MHz para 3T (omega = 2 * pi * f0)
+  fov_x_m: 0.24                    # Campo de vision fisico en X (metros)
+  fov_y_m: 0.24                    # Campo de vision fisico en Y (metros)
+  epsilon_b1: 1.0e-3               # Salvaguarda de denominador para |B1+| + eps
+
+data:
+  matrix_size: [128, 128]          # Resolucion espacial [H, W]
+  num_coils: 8                     # Numero de antenas receptoras (Nc)
+  noise_snr_db: 35.0               # SNR del ruido gaussiano complejo en k-space
+  mask_type: "cartesian"           # "cartesian" | "radial" | "poisson"
+  acceleration: 4                  # Factor de aceleracion R (4x, 8x)
+  acs_lines: 18                    # Lineas centrales de autocalibracion (ACS)
+
+model:
+  omega_anatomy: 30.0              # Frecuencia base SIREN para anatomia y fase
+  omega_coil: 5.0                  # Frecuencia base SIREN suave para mapas de bobinas C_j
+  omega_ept: 15.0                  # Frecuencia base para cabeza fisica EPT (sigma, eps_r)
+  hidden_features_anatomy: 128
+  hidden_layers_anatomy: 4
+  hidden_features_coil: 64
+  hidden_layers_coil: 3
+  hidden_features_ept: 96
+  hidden_layers_ept: 3
+  sigma_bounds: [0.01, 3.0]        # Rango fisico de conductividad electrica [S/m]
+  eps_r_bounds: [1.0, 100.0]       # Rango fisico de permitividad relativa adimensional
+
+training:
+  epochs: 150
+  warmup_epochs: 15                # Epocas iniciales con lambda_ept = 0.0
+  lr_anatomy: 6.0e-4
+  lr_coil: 1.0e-3
+  lr_ept: 2.5e-3
+  lambda_kspace: 1.0
+  lambda_ept_sigma: 0.15
+  lambda_ept_eps: 0.02
+  lambda_coil_smooth: 0.02
+  lambda_harmonic_b0: 0.02
+  telemetry_interval: 5            # Emitir mapas por WebSocket cada N epocas

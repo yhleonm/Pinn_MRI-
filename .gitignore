@@ -1,0 +1,42 @@
+# =============================================================================
+# .gitignore - Repositorio Liviano Decoupled MRI-PINN
+# =============================================================================
+
+# Python & PyTorch caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Datos pesados autogenerables (.h5 y cache de descarga externa)
+# Se regeneran automaticamente en <5s con:
+#   python run_ablation_study.py
+#   python download_and_validate_external.py
+data/*.h5
+data/raw/
+data/external_cache/
+
+# Frontend build & dependencias Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Manuscrito y archivos de revista (solo locales, excluidos de GitHub)
+paper/
+results/paper_artifacts/*.tex
+
+# Sistema operativo e IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

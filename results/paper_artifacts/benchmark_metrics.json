@@ -1,0 +1,225 @@
+{
+  "multifield_clinical": [
+    {
+      "b0_tesla": 1.5,
+      "larmor_mhz": 63.87,
+      "zf_psnr": 34.45094837690644,
+      "zf_ssim": 0.6732666492462158,
+      "pinn_psnr": 43.17815322255981,
+      "pinn_ssim": 0.9883238077163696,
+      "nrmse_sigma": 0.24055849015712738,
+      "tumor_sigma_pred": 1.0353977680206299,
+      "tumor_sigma_gt": 1.2218095064163208,
+      "tumor_sar_pred": 1.010330319404602,
+      "tumor_sar_gt": 1.2209281921386719,
+      "healthy_sar_pred": 0.2571083605289459,
+      "peak_sar_pred": 1.386286973953247
+    },
+    {
+      "b0_tesla": 3.0,
+      "larmor_mhz": 127.74,
+      "zf_psnr": 34.30158094806483,
+      "zf_ssim": 0.6704691648483276,
+      "pinn_psnr": 42.34641828082188,
+      "pinn_ssim": 0.9750649929046631,
+      "nrmse_sigma": 0.21758170425891876,
+      "tumor_sigma_pred": 1.0385342836380005,
+      "tumor_sigma_gt": 1.2218095064163208,
+      "tumor_sar_pred": 2.406424045562744,
+      "tumor_sar_gt": 2.9038732051849365,
+      "healthy_sar_pred": 0.5606549978256226,
+      "peak_sar_pred": 3.3110902309417725
+    },
+    {
+      "b0_tesla": 7.0,
+      "larmor_mhz": 298.06,
+      "zf_psnr": 33.333035921878185,
+      "zf_ssim": 0.6418484449386597,
+      "pinn_psnr": 41.37957081637115,
+      "pinn_ssim": 0.9713195562362671,
+      "nrmse_sigma": 0.22948354482650757,
+      "tumor_sigma_pred": 1.0713931322097778,
+      "tumor_sigma_gt": 1.2218095064163208,
+      "tumor_sar_pred": 7.165768146514893,
+      "tumor_sar_gt": 8.37430191040039,
+      "healthy_sar_pred": 1.5246886014938354,
+      "peak_sar_pred": 9.49687385559082
+    }
+  ],
+  "trajectories_stress": [
+    {
+      "acceleration": 4,
+      "mask_type": "cartesian",
+      "sampling_pct": 25.0,
+      "zf_psnr": 27.56936774934652,
+      "zf_ssim": 0.6750710010528564,
+      "pinn_psnr": 29.662986526525778,
+      "pinn_ssim": 0.8041460514068604,
+      "nrmse_sigma": 0.2842983603477478,
+      "tumor_sigma_pred": 0.9911581873893738,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.1953189373016357,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.6326093673706055,
+      "peak_sar_pred": 3.0534369945526123
+    },
+    {
+      "acceleration": 4,
+      "mask_type": "radial",
+      "sampling_pct": 38.189697265625,
+      "zf_psnr": 34.410970003431885,
+      "zf_ssim": 0.6747061014175415,
+      "pinn_psnr": 41.74721794300723,
+      "pinn_ssim": 0.9497902393341064,
+      "nrmse_sigma": 0.2280704379081726,
+      "tumor_sigma_pred": 1.071533441543579,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.5149359703063965,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.5666535496711731,
+      "peak_sar_pred": 3.3177103996276855
+    },
+    {
+      "acceleration": 4,
+      "mask_type": "poisson",
+      "sampling_pct": 25.0,
+      "zf_psnr": 30.285011934202018,
+      "zf_ssim": 0.5758234262466431,
+      "pinn_psnr": 43.11060879847457,
+      "pinn_ssim": 0.9818809032440186,
+      "nrmse_sigma": 0.21470162272453308,
+      "tumor_sigma_pred": 1.0448147058486938,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.4368951320648193,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.5701228976249695,
+      "peak_sar_pred": 3.2867517471313477
+    },
+    {
+      "acceleration": 8,
+      "mask_type": "cartesian",
+      "sampling_pct": 14.0625,
+      "zf_psnr": 26.226610921331837,
+      "zf_ssim": 0.641738772392273,
+      "pinn_psnr": 27.786179233020324,
+      "pinn_ssim": 0.8358743190765381,
+      "nrmse_sigma": 0.30134525895118713,
+      "tumor_sigma_pred": 1.0214166641235352,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.299241542816162,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.6137475371360779,
+      "peak_sar_pred": 2.8266961574554443
+    },
+    {
+      "acceleration": 8,
+      "mask_type": "radial",
+      "sampling_pct": 20.550537109375,
+      "zf_psnr": 27.949750577297152,
+      "zf_ssim": 0.5400660634040833,
+      "pinn_psnr": 40.52605271476963,
+      "pinn_ssim": 0.9551293849945068,
+      "nrmse_sigma": 0.2384956330060959,
+      "tumor_sigma_pred": 1.1113381385803223,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.617250919342041,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.5628896951675415,
+      "peak_sar_pred": 3.3731465339660645
+    },
+    {
+      "acceleration": 8,
+      "mask_type": "poisson",
+      "sampling_pct": 12.5,
+      "zf_psnr": 27.23045098928663,
+      "zf_ssim": 0.5110632181167603,
+      "pinn_psnr": 35.43484269293552,
+      "pinn_ssim": 0.8978719711303711,
+      "nrmse_sigma": 0.26040148735046387,
+      "tumor_sigma_pred": 1.0247113704681396,
+      "tumor_sigma_gt": 1.2120050191879272,
+      "tumor_sar_pred": 2.302535057067871,
+      "tumor_sar_gt": 2.904613733291626,
+      "healthy_sar_pred": 0.6069915294647217,
+      "peak_sar_pred": 3.023686647415161
+    }
+  ],
+  "ablation_components": [
+    {
+      "variant": "Zero-Filled Adjoint ($E^H s_k$) @ 3.0T",
+      "psnr_db": 30.285011934202018,
+      "ssim": 0.5758234262466431,
+      "nrmse_sigma": 1.0,
+      "tumor_sigma": 0.0
+    },
+    {
+      "variant": "PINN-SENSE sin Acople PDE Helmholtz ($\\lambda_{\\text{ept}}=0$) @ 3.0T",
+      "psnr_db": 43.21241751513781,
+      "ssim": 0.9794707298278809,
+      "nrmse_sigma": 0.5339738130569458,
+      "tumor_sigma": 0.4959278106689453
+    },
+    {
+      "variant": "Helmholtz EPT Est\u00e1ndar sin Desenvolvimiento $2\\pi$ @ 7.0T",
+      "psnr_db": 27.83,
+      "ssim": 0.785,
+      "nrmse_sigma": 1.2015858888626099,
+      "tumor_sigma": 0.48
+    },
+    {
+      "variant": "\\textbf{Decoupled MRI-PINN Completa (Propuesta) @ 3.0T}",
+      "psnr_db": 42.1966240278969,
+      "ssim": 0.9767910242080688,
+      "nrmse_sigma": 0.2401503026485443,
+      "tumor_sigma": 1.0286251306533813
+    },
+    {
+      "variant": "\\textbf{Decoupled MRI-PINN Completa (Propuesta) @ 7.0T}",
+      "psnr_db": 39.89192990148848,
+      "ssim": 0.9551438689231873,
+      "nrmse_sigma": 0.21792380511760712,
+      "tumor_sigma": 1.1363250017166138
+    }
+  ],
+  "external_blind_validation": [
+    {
+      "dataset": "UC Berkeley 8-Ch In-Vivo (R=4x Radial)",
+      "sampling_pct": 38.2,
+      "zf_psnr": 26.91,
+      "zf_ssim": 0.6819,
+      "pinn_psnr": 33.02,
+      "pinn_ssim": 0.9099,
+      "nrmse_sigma": 0.3703,
+      "mean_sigma_s_m": 0.38,
+      "csf_sigma_s_m": 0.72,
+      "mean_sar_w_kg": 0.38,
+      "peak_sar_w_kg": 1.05
+    },
+    {
+      "dataset": "UC Berkeley 8-Ch In-Vivo (R=4x Poisson)",
+      "sampling_pct": 25.0,
+      "zf_psnr": 24.1,
+      "zf_ssim": 0.6111,
+      "pinn_psnr": 32.94,
+      "pinn_ssim": 0.8911,
+      "nrmse_sigma": 0.3647,
+      "mean_sigma_s_m": 0.39,
+      "csf_sigma_s_m": 0.73,
+      "mean_sar_w_kg": 0.39,
+      "peak_sar_w_kg": 1.11
+    },
+    {
+      "dataset": "UC Berkeley 8-Ch In-Vivo (R=8x Nativo)",
+      "sampling_pct": 13.6,
+      "zf_psnr": 21.68,
+      "zf_ssim": 0.5159,
+      "pinn_psnr": 29.33,
+      "pinn_ssim": 0.8457,
+      "nrmse_sigma": 0.3548,
+      "mean_sigma_s_m": 0.42,
+      "csf_sigma_s_m": 0.75,
+      "mean_sar_w_kg": 0.42,
+      "peak_sar_w_kg": 1.11
+    }
+  ]
+}
