@@ -246,24 +246,35 @@ class HelmholtzEPTOperator(nn.Module):
         coords_norm: Optional[torch.Tensor] = None,
         b0_tesla: float = 3.0,
         rho_kg_m3: float = 1040.0,
-        e_ref_v_m: float = 71.39,
+        e_ref_v_m: float = 138.0,
     ) -> torch.Tensor:
         """
-        Calcula la Tasa de Absorcion Especifica Local (SAR en W/kg) mediante la Ley de Ampere-Maxwell /
-        Faraday en tejido cerebral (rho = 1040 kg/m^3):
-            SAR(x) = sigma(x) * |E(x)|^2 / (2 * rho(x))
+        Calcula la estimacion de Tasa de Absorcion Especifica Local (SAR en W/kg) mediante acoplamiento
+        inductivo cuasi-estatico en resonador tipo birdcage sobre tejido cerebral (rho = 1040 kg/m^3):
+            SAR(x) = sigma(x) * ||E(x)||_2^2 / (2 * rho(x))
+            ||E(x)||_2 = E_ref * (B_0 / 3.0) * (|B1+(x)| / max|B1+|) * Psi(x)
+            Psi(x) = sqrt(0.18 + 0.82 * (r(x) / R_max)^2)
+        donde Psi(x) modela el crecimiento radial del campo electrico inducido por ley de Faraday
+        desde el isocentro (r -> 0) hacia la periferia cortical (r -> R_max).
         """
         b1_max = torch.clamp(b1_mag.max(), min=1e-6)
         b1_norm = b1_mag / b1_max
-        b0_factor = (max(float(b0_tesla), 0.5) / 3.0) ** 1.25
+        b0_ratio = max(float(b0_tesla), 0.5) / 3.0
 
         if coords_norm is not None:
             r_sq = torch.sum(coords_norm.reshape(-1, 2) ** 2, dim=-1, keepdim=True)
             if r_sq.shape != b1_norm.shape:
                 r_sq = r_sq.reshape_as(b1_norm)
         else:
-            r_sq = torch.zeros_like(b1_norm)
+            h, w = b1_norm.shape[-2], b1_norm.shape[-1]
+            yv = torch.linspace(-1.0, 1.0, steps=h, device=b1_norm.device, dtype=b1_norm.dtype)
+            xv = torch.linspace(-1.0, 1.0, steps=w, device=b1_norm.device, dtype=b1_norm.dtype)
+            yy, xx = torch.meshgrid(yv, xv, indexing="ij")
+            r_sq = (xx ** 2 + yy ** 2).reshape_as(b1_norm)
 
-        e_field_sq = (e_ref_v_m ** 2) * b0_factor * (0.78 * (b1_norm ** 2) + 0.22 * (1.0 + 0.15 * r_sq))
+        r_max_sq = 0.72 ** 2 + 0.86 ** 2  # Radio eliptico craneal normalizado R_max^2 = 1.258
+        r_rel_sq = torch.clamp(r_sq / r_max_sq, 0.0, 1.2)
+        psi_sq = 0.18 + 0.82 * r_rel_sq
+        e_field_sq = (e_ref_v_m ** 2) * (b0_ratio ** 2) * (b1_norm ** 2) * psi_sq
         sar = (sigma * e_field_sq) / (2.0 * rho_kg_m3)
         return torch.clamp(sar, min=0.0, max=25.0)

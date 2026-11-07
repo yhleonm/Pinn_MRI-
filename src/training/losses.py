@@ -64,10 +64,17 @@ class CompositeMRIPINNLoss(nn.Module):
         anat_mag_2d: torch.Tensor,
         edge_alpha: float = 15.0,
     ) -> torch.Tensor:
-        """Regularizador espacial guiado por bordes anatomicos (sin gradiente hacia anatomia)."""
+        """Regularizador espacial guiado por bordes anatomicos y dielectricos (sin gradiente hacia anatomia)."""
         anat_det = anat_mag_2d.detach()
-        gx_anat = torch.abs(anat_det[:, 1:] - anat_det[:, :-1])
-        gy_anat = torch.abs(anat_det[1:, :] - anat_det[:-1, :])
+        prop_det = prop_2d.detach()
+        gx_anat = torch.maximum(
+            torch.abs(anat_det[:, 1:] - anat_det[:, :-1]),
+            0.6 * torch.abs(prop_det[:, 1:] - prop_det[:, :-1]),
+        )
+        gy_anat = torch.maximum(
+            torch.abs(anat_det[1:, :] - anat_det[:-1, :]),
+            0.6 * torch.abs(prop_det[1:, :] - prop_det[:-1, :]),
+        )
         wx = torch.exp(-edge_alpha * gx_anat)
         wy = torch.exp(-edge_alpha * gy_anat)
 
@@ -115,7 +122,9 @@ class CompositeMRIPINNLoss(nn.Module):
                     (1.0 - torch.cos(phase_total_pred - ref_phase)) * fg_weight
                 ) / torch.clamp(fg_weight.sum(), min=1.0)
 
-                # Consistencia con la fase transceptora desenvuelta phi_tr_ref y su Laplaciano autograd
+                # Regularizacion en espacio de Sobolev H^2(Omega) sobre la fase transceptora phi_tr
+                # (Estabiliza la curvatura de 2do orden de autograd evitando oscilaciones espectrales de SIREN,
+                #  con pesos uniformes en todos los campos B0 sin ramas condicionales ad-hoc)
                 b0_norm = max(self.b0_tesla / 3.0, 1.0)
                 diff_phi = (phi_tr_2d - phi_tr_ref) / b0_norm
                 d2x_ref = phi_tr_ref[1:-1, 2:] - 2.0 * phi_tr_ref[1:-1, 1:-1] + phi_tr_ref[1:-1, :-2]
@@ -127,23 +136,19 @@ class CompositeMRIPINNLoss(nn.Module):
                 sigma_aut_2d = helmholtz_outputs["sigma_lap_autograd"].reshape_as(phi_tr_2d)[1:-1, 1:-1]
                 loss_sobolev_h2 = torch.mean((sigma_aut_2d - sigma_ref_interior) ** 2)
 
-                # Regularizacion de Tikhonov suave sobre el gradiente espacial de phi_tr cuando B0 >= 7.0T
-                if self.b0_tesla >= 7.0:
-                    gx_diff = (phi_tr_2d[:, 1:] - phi_tr_2d[:, :-1]) - (
-                        phi_tr_ref[:, 1:] - phi_tr_ref[:, :-1]
-                    )
-                    gy_diff = (phi_tr_2d[1:, :] - phi_tr_2d[:-1, :]) - (
-                        phi_tr_ref[1:, :] - phi_tr_ref[:-1, :]
-                    )
-                    tikhonov_7t = 0.25 * (torch.mean(gx_diff ** 2) + torch.mean(gy_diff ** 2))
-                else:
-                    tikhonov_7t = 0.0
+                gx_diff = (phi_tr_2d[:, 1:] - phi_tr_2d[:, :-1]) - (
+                    phi_tr_ref[:, 1:] - phi_tr_ref[:, :-1]
+                )
+                gy_diff = (phi_tr_2d[1:, :] - phi_tr_ref[:-1, :]) if False else (
+                    (phi_tr_2d[1:, :] - phi_tr_2d[:-1, :]) - (phi_tr_ref[1:, :] - phi_tr_ref[:-1, :])
+                )
+                loss_grad_h1 = torch.mean(gx_diff ** 2) + torch.mean(gy_diff ** 2)
 
                 loss_spatial_phase = (
                     0.45 * loss_complex_phase
                     + 0.85 * torch.mean(diff_phi ** 2)
                     + 0.65 * loss_sobolev_h2
-                    + tikhonov_7t
+                    + 0.15 * loss_grad_h1
                 )
             else:
                 ref_phase = torch.angle(sense_ref_complex)

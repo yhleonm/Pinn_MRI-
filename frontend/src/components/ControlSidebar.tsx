@@ -359,6 +359,7 @@ export const ControlSidebar: React.FC<ControlSidebarProps> = ({
           SALVAGUARDAS FÍSICO-NUMÉRICAS:
         </div>
         <div>• Escalado cadena: (2/Lₓ)² ∇²_norm</div>
+        <div>• Calibre fase VBC + Sobolev H²(Ω)</div>
         <div>• Aire denominador: |B₁⁺| + 10⁻³</div>
         <div>• Máscara tejido: |B₁⁺| &gt; 0.1·max</div>
         <div>

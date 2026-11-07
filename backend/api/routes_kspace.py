@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from src.data.kspace_loader import (
     SyntheticPhantomDataset,
+    _gabriel_dispersion_scale,
     generate_clinical_in_vivo_brain_phantom,
     generate_realistic_brain_ept_phantom,
     generate_shepp_logan_ept_phantom,
@@ -82,9 +83,11 @@ class GPUSessionManager:
         sample_path = Path("data/raw/sample_brain_8coils.h5")
         save_dataset_to_h5(cortical_ds, sample_path)
         clinical_path = Path("data/clinical_in_vivo_brain_8coils.h5")
-        if not clinical_path.exists():
+        numerical_path = Path("data/numerical_brain_phantom_8coils.h5")
+        if not clinical_path.exists() or not numerical_path.exists():
             clinical_ds = generate_clinical_in_vivo_brain_phantom(device=self.device)
             save_dataset_to_h5(clinical_ds, clinical_path)
+            save_dataset_to_h5(clinical_ds, numerical_path)
         shepp_path = Path("data/shepp_logan_8coils_3T.h5")
         if not shepp_path.exists():
             save_dataset_to_h5(self.dataset, shepp_path)
@@ -109,7 +112,14 @@ class GPUSessionManager:
         self.dataset.b0_tesla = b0_tesla
 
         if abs(b0_tesla - old_b0) > 1e-3 and old_b0 > 0.1:
-            scale_b0 = float(b0_tesla) / old_b0
+            sigma_scale, eps_scale = _gabriel_dispersion_scale(b0_tesla=float(b0_tesla), ref_b0=old_b0)
+            scale_b0 = (float(b0_tesla) / old_b0) * sigma_scale
+            self.dataset.sigma_gt = self.dataset.sigma_gt * sigma_scale
+            self.dataset.eps_r_gt = torch.where(
+                self.dataset.tissue_mask_gt > 0.5,
+                torch.clamp(self.dataset.eps_r_gt * eps_scale, min=1.0, max=95.0),
+                self.dataset.eps_r_gt,
+            )
             self.dataset.phi_tr_gt = self.dataset.phi_tr_gt * scale_b0
             self.dataset.phi_total_gt = self.dataset.phi_tr_gt + self.dataset.phi_b0_gt
             m_cplx_new = torch.polar(self.dataset.m_mag_gt, self.dataset.phi_total_gt)

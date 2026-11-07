@@ -282,6 +282,21 @@ def generate_shepp_logan_ept_phantom(
     )
 
 
+def _gabriel_dispersion_scale(b0_tesla: float, ref_b0: float = 3.0) -> Tuple[float, float]:
+    """
+    Factores de dispersion dielectrica de Cole-Cole (Gabriel et al., 1996) para tejido encefálico
+    entre 1.5 T (63.87 MHz), 3.0 T (127.74 MHz) y 7.0 T (298.06 MHz) respecto a 3.0 T:
+      - La conductividad ionica/dipolar sigma(f) aumenta con la frecuencia (~0.92x a 1.5T, 1.00x a 3T, 1.10x a 7T).
+      - La permitividad relativa eps_r(f) disminuye con la frecuencia (~1.16x a 1.5T, 1.00x a 3T, 0.86x a 7T).
+    """
+    if abs(float(b0_tesla) - float(ref_b0)) < 1e-3:
+        return 1.0, 1.0
+    ratio = max(float(b0_tesla), 0.5) / max(float(ref_b0), 0.5)
+    sigma_factor = float(ratio ** 0.115)
+    eps_factor = float(ratio ** (-0.185))
+    return sigma_factor, eps_factor
+
+
 def generate_realistic_brain_ept_phantom(
     height: int = 128,
     width: int = 128,
@@ -294,13 +309,18 @@ def generate_realistic_brain_ept_phantom(
     acceleration: int = 4,
     acs_lines: int = 18,
     seed: int = 42,
+    contrast_mode: str = "coupled",
     device: torch.device | str = "cuda",
 ) -> SyntheticPhantomDataset:
     """
-    Genera un corte axial anatomico realista de cerebro humano multi-bobina (compatible con fastMRI .h5)
+    Genera un fantoma numerico antropomorfico 2D de cerebro humano multi-bobina (compatible con fastMRI .h5)
     con circunvoluciones corticales (gyri/sulci), cisura interhemisferica, nucleos basales (talamo/putamen),
-    ventriculos laterales simetricos y una lesion tumoral focal hiper-conductiva en el lobulo
-    temporoparietal derecho claramente separada de los ventriculos (cx=+0.36, cy=-0.16, sigma=1.22 S/m).
+    ventriculos laterales simetricos y una lesion tumoral focal en el lobulo temporoparietal derecho
+    claramente separada de los ventriculos (cx=+0.36, cy=-0.16).
+    Soporta dispersion dielectrica de Gabriel et al. (1996) y tres modos de control de contraste:
+      - 'coupled': tumor hiperintenso en magnitud (|m|=1.00) e hiper-conductivo (sigma_3T=1.22 S/m).
+      - 'sigma_only': control isointenso en magnitud (|m|=0.61 igual a sustancia blanca) pero hiper-conductivo.
+      - 'mag_only': control hiperintenso en magnitud (|m|=1.00) pero isoconductivo (sigma=0.34 S/m).
     """
     rng = np.random.default_rng(seed)
     y = np.linspace(-1.0, 1.0, height, dtype=np.float32)
@@ -375,16 +395,39 @@ def generate_realistic_brain_ept_phantom(
     # Halo de edema vasogenico peritumoral
     edema_dist = ((xx - 0.36) / 0.165) ** 2 + ((yy + 0.16) / 0.155) ** 2
     edema_mask = (edema_dist <= 1.0) & wm_mask
-    m_mag[edema_mask] = 0.78
-    sigma[edema_mask] = 0.72
-    eps_r[edema_mask] = 60.0
-
     # Nucleo tumoral hiper-conductivo aislado (cx = +0.36, cy = -0.16, r = 0.125)
     tumor_dist = ((xx - 0.36) / 0.125) ** 2 + ((yy + 0.16) / 0.120) ** 2
     tumor_mask = tumor_dist <= 1.0
-    m_mag[tumor_mask] = 1.00
-    sigma[tumor_mask] = 1.22
-    eps_r[tumor_mask] = 68.0
+
+    cmode = contrast_mode.lower().strip()
+    if cmode == "sigma_only":
+        # Control de confusion A: Lesión isointensa en magnitud (igual a sustancia blanca 0.61), contraste puro en sigma
+        m_mag[edema_mask] = 0.61
+        sigma[edema_mask] = 0.72
+        eps_r[edema_mask] = 60.0
+        m_mag[tumor_mask] = 0.61
+        sigma[tumor_mask] = 1.22
+        eps_r[tumor_mask] = 68.0
+    elif cmode == "mag_only":
+        # Control de confusion B: Lesión hiperintensa en magnitud (1.00), isoconductiva con sustancia blanca (0.34 S/m)
+        m_mag[edema_mask] = 0.78
+        sigma[edema_mask] = 0.34
+        eps_r[edema_mask] = 40.0
+        m_mag[tumor_mask] = 1.00
+        sigma[tumor_mask] = 0.34
+        eps_r[tumor_mask] = 40.0
+    else:
+        m_mag[edema_mask] = 0.78
+        sigma[edema_mask] = 0.72
+        eps_r[edema_mask] = 60.0
+        m_mag[tumor_mask] = 1.00
+        sigma[tumor_mask] = 1.22
+        eps_r[tumor_mask] = 68.0
+
+    # Escalar propiedades dielectricas segun dispersion en frecuencia de Gabriel et al. (1996)
+    sig_disp, eps_disp = _gabriel_dispersion_scale(b0_tesla, ref_b0=3.0)
+    sigma[tissue_mask > 0.5] *= sig_disp
+    eps_r[tissue_mask > 0.5] = np.clip(eps_r[tissue_mask > 0.5] * eps_disp, 1.0, 100.0)
 
     # Suavizado fisico C^2
     m_mag = _gaussian_filter_2d(m_mag, sigma=1.05)
@@ -561,17 +604,22 @@ def load_h5_kspace_slice(
     else:
         tissue_mask_gt = (m_mag_gt > 0.1 * m_mag_gt.max()).float()
 
+    sig_disp, eps_disp = _gabriel_dispersion_scale(b0_tesla, ref_b0=stored_b0)
     if sigma_ref is not None:
         sigma_gt = torch.from_numpy(sigma_ref.astype(np.float32)).to(device=device)
+        if abs(sig_disp - 1.0) > 1e-3:
+            sigma_gt = sigma_gt * (tissue_mask_gt * sig_disp + (1.0 - tissue_mask_gt))
     else:
-        sigma_gt = torch.full((h, w), 0.50, device=device, dtype=torch.float32) * tissue_mask_gt
+        sigma_gt = torch.full((h, w), 0.50 * sig_disp, device=device, dtype=torch.float32) * tissue_mask_gt
 
     if eps_ref is not None:
         eps_r_gt = torch.from_numpy(eps_ref.astype(np.float32)).to(device=device)
+        if abs(eps_disp - 1.0) > 1e-3:
+            eps_r_gt = torch.clamp(eps_r_gt * (tissue_mask_gt * eps_disp + (1.0 - tissue_mask_gt)), 1.0, 100.0)
     else:
-        eps_r_gt = torch.full((h, w), 50.0, device=device, dtype=torch.float32) * tissue_mask_gt
+        eps_r_gt = torch.full((h, w), 50.0 * eps_disp, device=device, dtype=torch.float32) * tissue_mask_gt
 
-    b0_scale = float(b0_tesla) / max(stored_b0, 1e-3)
+    b0_scale = (float(b0_tesla) / max(stored_b0, 1e-3)) * sig_disp
     phi_tr_gt = (
         torch.from_numpy(phi_tr_ref.astype(np.float32)).to(device=device) * b0_scale
         if phi_tr_ref is not None

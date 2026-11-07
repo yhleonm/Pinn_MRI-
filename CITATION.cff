@@ -1,11 +1,12 @@
 cff-version: 1.2.0
 message: "Si utilizas este software o su formulación matemática en tu investigación, por favor cítalo con los siguientes metadatos."
-title: "Decoupled MRI-PINN: Reconstrucción simultánea en espacio-k multi-bobina, tomografía de propiedades eléctricas y dosimetría térmica de radiofrecuencia mediante redes neuronales informadas por la física con separación armónica de fase"
+title: "Reconstrucción electromagnética en espacio-k, tomografía de propiedades eléctricas y estimación de tasa de absorción específica mediante redes neuronales informadas por la física"
 authors:
-  - family-names: "León-M."
-    given-names: "Yeison H."
-version: 1.0.0
-date-released: 2026-11-03
+  - family-names: "León-Montañez"
+    given-names: "Yerson Hernando"
+    orcid: "https://orcid.org/0009-0000-4439-8661"
+version: 1.1.0
+date-released: 2026-11-06
 url: "https://github.com/yhleonm/Pinn_MRI-"
 repository-code: "https://github.com/yhleonm/Pinn_MRI-"
 license: MIT
@@ -14,5 +15,5 @@ keywords:
   - Parallel MRI Reconstruction
   - Electrical Properties Tomography
   - Complex Helmholtz Equation
-  - Specific Absorption Rate Dosimetry
+  - Specific Absorption Rate Estimation
   - SIREN Implicit Neural Representations

@@ -1,17 +1,10 @@
 """
-Descarga Automatizada y Validacion Externa Ciega (Zero-Shot Hyperparameter Freeze)
+Descarga Automatizada y Validacion Externa Ciega (Congelamiento de Hiperparametros)
 sobre el Corte Axial Cerebral Real de 8 Bobinas de UC Berkeley / BART ISMRM
-(Repositorio Publico: mrirecon/bart-workshop/ismrm2016/pics-brain & mikgroup/sigpy-mri-tutorial).
+(Repositorio Publico: mrirecon/bart-workshop/ismrm2016/pics-brain).
 
-Evalua 3 regimenes de aceleracion sin alterar un solo hiperparametro:
-  1. R = 4x Golden-Angle Radial (38.2% k-space)
-  2. R = 4x Variable-Density Poisson-disc (25.0% k-space)
-  3. R = 8x Poisson-disc Prospectivo Nativo del Resonador (13.6% k-space)
-
-Exporta:
-  - data/external_public_brain_raw.h5 (compatible con la estacion PACS)
-  - results/paper_artifacts/fig3_external_blind_validation_300dpi.png (300 DPI)
-  - Actualiza results/paper_artifacts/ablation_tables.tex y benchmark_metrics.json
+Evalua 3 regimenes de aceleracion (2 retrospectivos hibridos a R=4x y 1 prospectivo nativo R=8x del archivo ksp.cfl)
+comparando Adjunto Zero-Filled, CG-SENSE y Decoupled MRI-PINN contra la referencia L1-ESPIRiT (bart pics).
 """
 
 from __future__ import annotations
@@ -25,6 +18,7 @@ import h5py
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -38,6 +32,7 @@ from src.data.kspace_loader import (
 from src.physics.sense_operator import DifferentiableSENSE
 from src.training.trainer import (
     MRIPINNTrainer,
+    compute_cg_sense,
     compute_psnr,
     compute_ssim,
     separate_harmonic_b0_lbv,
@@ -68,7 +63,7 @@ def _frozen_hyperparameters(
     acceleration: int = 4,
     epochs: int = 55,
 ) -> Dict[str, Any]:
-    """Hiperparametros 100% congelados (Zero-Shot) identicos al estudio principal."""
+    """Hiperparametros congelados identicos al estudio principal."""
     return {
         "physics": {
             "b0_tesla": b0_tesla,
@@ -106,6 +101,7 @@ def _frozen_hyperparameters(
             "lambda_ept_eps": 0.02,
             "lambda_coil_smooth": 0.02,
             "lambda_harmonic_b0": 0.02,
+            "enable_s1_unwrapping": True,
             "telemetry_interval": 15,
         },
     }
@@ -125,13 +121,11 @@ def _prepare_ucb_8ch_dataset(
     ksp_raw = np.frombuffer(raw_ksp_bytes, dtype=np.complex64).copy().reshape((180, 230, 8), order="F")
     ref_raw = np.frombuffer(raw_img_bytes, dtype=np.complex64).copy().reshape((180, 230, 2), order="F")[:, :, 0]
 
-    # Rotar 90 grados para orientacion axial radiologica estandar (polo frontal arriba, occipital abajo)
     ksp_np = np.rot90(ksp_raw, k=1, axes=(0, 1)).copy()  # (230, 180, 8)
     ref_img_np = np.rot90(ref_raw, k=1, axes=(0, 1)).copy()  # (230, 180)
 
     sense_op = DifferentiableSENSE()
 
-    # Reescalar referencia L1-ESPIRiT a (128, 128)
     ref_t = torch.from_numpy(ref_img_np).to(device=device, dtype=torch.complex64)
     ref_real = F.interpolate(
         ref_t.real.unsqueeze(0).unsqueeze(0), size=(target_size, target_size), mode="bilinear", align_corners=False
@@ -141,7 +135,6 @@ def _prepare_ucb_8ch_dataset(
     ).squeeze()
     ref_128 = torch.complex(ref_real, ref_imag)
 
-    # Estimar mapas de sensibilidad reales desde la banda ACS central del archivo ksp.cfl de UC Berkeley
     ksp_orig_t = torch.from_numpy(np.moveaxis(ksp_np, -1, 0)).to(device=device, dtype=torch.complex64)
     coils_orig = sense_op.estimate_initial_coil_maps(ksp_orig_t, acs_width=24)
     c_real = F.interpolate(
@@ -154,14 +147,12 @@ def _prepare_ucb_8ch_dataset(
     rss_c = torch.sqrt(torch.sum(torch.abs(coils_128) ** 2, dim=0, keepdim=True) + 1e-8)
     coils_128 = coils_128 / rss_c
 
-    # Normalizacion robusta al percentil 99.5% (Ruta 1)
     p995 = torch.quantile(torch.abs(ref_128).flatten(), 0.995).clamp(min=1e-8)
     ref_128 = ref_128 / p995
     m_mag_gt = torch.clamp(torch.abs(ref_128), 0.0, 1.0)
     inside = m_mag_gt > 0.15
     tissue_mask_gt = inside.float()
 
-    # Erosiones morfologicas para separar el anillo craneal cortical del parenquima interno en adquisicion T1 real
     inv = (~inside).float().unsqueeze(0).unsqueeze(0)
     eroded_skull = (F.max_pool2d(inv, kernel_size=9, stride=1, padding=4) < 0.5).squeeze()
     eroded_deep = (F.max_pool2d(inv, kernel_size=13, stride=1, padding=6) < 0.5).squeeze()
@@ -171,10 +162,6 @@ def _prepare_ucb_8ch_dataset(
     eskull_np = eroded_skull.float().detach().cpu().numpy()
     edeep_np = eroded_deep.float().detach().cpu().numpy()
 
-    # Mapa dielectrico consistente con contraste T1 real in-vivo:
-    # - Anillo craneal periferico: sigma = 0.18 S/m
-    # - Sustancia blanca / gris parenquimatosa: sigma = 0.36 - 0.58 S/m
-    # - LCR ventricular central (hipointenso en T1 dentro de eroded_deep): sigma = 1.35 S/m
     sigma_bio = np.zeros_like(mag_np, dtype=np.float32)
     skull_ring = (tmask_np > 0.5) & (eskull_np < 0.5)
     parenchyma = eskull_np > 0.5
@@ -192,7 +179,6 @@ def _prepare_ucb_8ch_dataset(
     rhs = (mu_0 * omega * sigma_bio).astype(np.float32)
     phi_tr_raw = (2.0 * _solve_poisson_dirichlet_2d(rhs, dx_m=dx_m, dy_m=dx_m)).astype(np.float32)
 
-    # Ortogonalizar phi_tr respecto al subespacio armonico en el anillo cortical
     y_v = np.linspace(-0.12, 0.12, target_size, dtype=np.float32)
     x_v = np.linspace(-0.12, 0.12, target_size, dtype=np.float32)
     yy, xx = np.meshgrid(y_v, x_v, indexing="ij")
@@ -201,7 +187,6 @@ def _prepare_ucb_8ch_dataset(
     c_harm, _, _, _ = np.linalg.lstsq(basis_np[ring_bool], phi_tr_raw[ring_bool], rcond=None)
     phi_tr_np = (phi_tr_raw - np.tensordot(basis_np, c_harm, axes=([-1], [0]))).astype(np.float32)
 
-    # Extraer componente armonica de fondo B0 real del corte de UC Berkeley
     phi_raw_unw = unwrap_phase_2d(torch.angle(ref_128), mag=m_mag_gt)
     _, phi_b0_real = separate_harmonic_b0_lbv(
         ref_128, fov_x_m=0.24, fov_y_m=0.24, b0_tesla=3.0, unwrapped_phase=phi_raw_unw
@@ -277,45 +262,49 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 92)
-    print(" ETAPA 1 (FRENTE #2): VALIDACION EXTERNA CIEGA CON DATOS CRUDOS PUBLICOS (UC BERKELEY / BART)")
+    print(" VALIDACION EXTERNA CON DATOS PUBLICOS DE UC BERKELEY / BART ISMRM (FONDO BLANCO 300 DPI)")
     print(f" Dispositivo: {device} ({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'CPU'})")
     print("=" * 92)
 
-    print("\n[1/3] Verificando archivos de espacio-k multi-bobina de UC Berkeley / BART ISMRM...")
     ucb_ksp_bytes = _download_bytes(URLS["ucb_pics_ksp"], cache_dir / "ucb_pics_ksp.cfl")
     ucb_img_bytes = _download_bytes(URLS["ucb_pics_img"], cache_dir / "ucb_pics_img.cfl")
-    print(
-        f"  * UC Berkeley / BART 8-Ch Axial Brain ({len(ucb_ksp_bytes) / 1024:.1f} KB) + Referencia L1-ESPIRiT ({len(ucb_img_bytes) / 1024:.1f} KB)"
-    )
 
     ds_ucb_4x_rad = _prepare_ucb_8ch_dataset(ucb_ksp_bytes, ucb_img_bytes, device=device, mask_mode="4x_radial")
     ds_ucb_4x_poi = _prepare_ucb_8ch_dataset(ucb_ksp_bytes, ucb_img_bytes, device=device, mask_mode="4x_poisson")
     ds_ucb_8x_nat = _prepare_ucb_8ch_dataset(ucb_ksp_bytes, ucb_img_bytes, device=device, mask_mode="native_8x_poisson")
 
-    # Guardar data/external_public_brain_raw.h5 para inspeccion en el visor PACS
     save_external_h5(ds_ucb_8x_nat, Path("data/external_public_brain_raw.h5"))
 
-    print("\n[2/3] Ejecutando Validacion Ciega (Zero-Shot Hyperparameter Freeze, 55 epocas)...")
     blind_runs = [
-        ("UC Berkeley 8-Ch In-Vivo (R=4x Radial)", ds_ucb_4x_rad, "radial", 4),
-        ("UC Berkeley 8-Ch In-Vivo (R=4x Poisson)", ds_ucb_4x_poi, "poisson", 4),
-        ("UC Berkeley 8-Ch In-Vivo (R=8x Nativo)", ds_ucb_8x_nat, "poisson", 8),
+        ("Retrospectivo R=4x Radial", ds_ucb_4x_rad, "radial", 4),
+        ("Retrospectivo R=4x Poisson", ds_ucb_4x_poi, "poisson", 4),
+        ("Prospectivo R=8x Nativo (ksp.cfl)", ds_ucb_8x_nat, "poisson", 8),
     ]
 
     external_results = []
     vis_records = []
 
     for label, ds, mtype, acc in blind_runs:
+        torch.manual_seed(42)
+        np.random.seed(42)
         cfg = _frozen_hyperparameters(b0_tesla=3.0, mask_type=mtype, acceleration=acc, epochs=55)
         trainer = MRIPINNTrainer(dataset=ds, config=cfg, device=device)
         history, maps = trainer.train(epochs=55, verbose=False)
         last = history[-1]
         zf_psnr = compute_psnr(torch.abs(ds.zero_filled), ds.m_mag_gt)
         zf_ssim = compute_ssim(torch.abs(ds.zero_filled), ds.m_mag_gt)
+
+        cg_cplx = compute_cg_sense(ds.kspace_masked, trainer.coil_acs_ref, ds.mask)
+        cg_mag = torch.abs(cg_cplx)
+        cg_psnr = compute_psnr(cg_mag, ds.m_mag_gt)
+        cg_ssim = compute_ssim(cg_mag, ds.m_mag_gt)
+
         tmask = ds.tissue_mask_gt > 0.5
         csf_mask = ds.sigma_gt > 0.85
+        paren_mask = tmask & (~csf_mask) & (ds.sigma_gt > 0.25)
         csf_sigma = float(maps["sigma"][csf_mask].mean().item()) if int(csf_mask.sum()) > 0 else float(maps["sigma"][tmask].max().item())
-        mean_sigma = float(maps["sigma"][tmask].mean().item())
+        paren_sigma = float(maps["sigma"][paren_mask].mean().item()) if int(paren_mask.sum()) > 0 else float(maps["sigma"][tmask].mean().item())
+        paren_eps = float(maps["eps_r"][paren_mask].mean().item()) if int(paren_mask.sum()) > 0 else float(maps["eps_r"][tmask].mean().item())
         peak_sar = float(maps["sar"][tmask].max().item())
         mean_sar = float(maps["sar"][tmask].mean().item())
         samp_pct = float(ds.mask.mean().item()) * 100.0
@@ -325,11 +314,13 @@ def main() -> None:
             "sampling_pct": round(samp_pct, 1),
             "zf_psnr": round(zf_psnr, 2),
             "zf_ssim": round(zf_ssim, 4),
+            "cg_psnr": round(cg_psnr, 2),
+            "cg_ssim": round(cg_ssim, 4),
             "pinn_psnr": round(last.psnr_db, 2),
             "pinn_ssim": round(last.ssim, 4),
-            "nrmse_sigma": round(last.nrmse_sigma, 4),
-            "mean_sigma_s_m": round(mean_sigma, 2),
+            "paren_sigma_s_m": round(paren_sigma, 2),
             "csf_sigma_s_m": round(csf_sigma, 2),
+            "paren_eps_r": round(paren_eps, 1),
             "mean_sar_w_kg": round(mean_sar, 2),
             "peak_sar_w_kg": round(peak_sar, 2),
         }
@@ -339,73 +330,84 @@ def main() -> None:
                 "label": label,
                 "samp_pct": samp_pct,
                 "zf_psnr": zf_psnr,
+                "cg_psnr": cg_psnr,
                 "pinn_psnr": last.psnr_db,
                 "pinn_ssim": last.ssim,
-                "nrmse_sigma": last.nrmse_sigma,
+                "paren_sigma": paren_sigma,
+                "paren_eps": paren_eps,
                 "peak_sar": peak_sar,
-                "mask_np": ds.mask.detach().cpu().numpy(),
                 "zf_mag": torch.abs(ds.zero_filled).detach().cpu().numpy(),
+                "cg_mag": cg_mag.detach().cpu().numpy(),
                 "pinn_mag": maps["m_mag"].detach().cpu().numpy(),
                 "sigma": maps["sigma"].detach().cpu().numpy(),
+                "eps_r": maps["eps_r"].detach().cpu().numpy(),
                 "sar": maps["sar"].detach().cpu().numpy(),
             }
         )
         print(
-            f"  * {label:<40} | Muestras: {samp_pct:4.1f}% | ZF: {zf_psnr:.2f} dB -> PINN: {last.psnr_db:.2f} dB "
-            f"(+{last.psnr_db - zf_psnr:.2f} dB) | SSIM: {last.ssim:.4f} | NRMSE_sigma: {last.nrmse_sigma:.4f} | Peak SAR: {peak_sar:.2f} W/kg"
+            f"  * {label:<36} | {samp_pct:4.1f}% | ZF: {zf_psnr:.2f} | CG: {cg_psnr:.2f} -> PINN: {last.psnr_db:.2f} dB "
+            f"(SSIM {last.ssim:.4f}) | sig_par: {paren_sigma:.2f} S/m, sig_LCR: {csf_sigma:.2f} S/m | eps_r: {paren_eps:.1f} | SAR pico: {peak_sar:.2f} W/kg"
         )
 
-    print("\n[3/3] Exportando Figura 3 a 300 DPI (fig3_external_blind_validation_300dpi.png)...")
     plt.rcParams.update(
         {
             "font.family": "sans-serif",
-            "font.size": 9,
-            "axes.titlesize": 9.5,
+            "font.size": 8.5,
+            "axes.titlesize": 8.6,
             "axes.titleweight": "bold",
-            "figure.facecolor": "#090d16",
-            "axes.facecolor": "#090d16",
-            "text.color": "#e2e8f0",
-            "axes.labelcolor": "#cbd5e1",
-            "xtick.color": "#94a3b8",
-            "ytick.color": "#94a3b8",
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "savefig.facecolor": "white",
+            "text.color": "#0f172a",
+            "axes.labelcolor": "#1e293b",
+            "xtick.color": "#334155",
+            "ytick.color": "#334155",
         }
     )
 
-    fig, axes = plt.subplots(len(vis_records), 4, figsize=(15.5, 11.2), dpi=300)
-    fig.suptitle(
-        "Validación Externa Ciega (Zero-Shot): Corte Axial Cerebral Real de 8 Bobinas (UC Berkeley / BART ISMRM @ 3.0T)",
-        fontsize=12.5,
-        fontweight="bold",
-        color="#f8fafc",
-        y=0.98,
-    )
+    fig, axes = plt.subplots(len(vis_records), 5, figsize=(16.5, 9.8), dpi=300)
 
     for row_idx, v in enumerate(vis_records):
         panels = [
-            (v["zf_mag"], "gray", 0.0, 1.0, f"{v['label']}\nZero-Filled ({v['zf_psnr']:.2f} dB)", "a.u."),
-            (v["pinn_mag"], "gray", 0.0, 1.0, f"PINN-SENSE |m(x)| ({v['pinn_psnr']:.2f} dB, SSIM {v['pinn_ssim']:.3f})", "a.u."),
-            (v["sigma"], "viridis", 0.0, 1.4, f"Conductividad EPT σ(x) (NRMSE {v['nrmse_sigma']:.3f})", "S/m"),
-            (v["sar"], "inferno", 0.0, 1.6, f"Dosimetría SAR(x) (Pico {v['peak_sar']:.2f} W/kg)", "W/kg"),
+            (v["zf_mag"], "gray", 0.0, 1.0, f"{v['label']}\nAdjunto ZF ({v['zf_psnr']:.2f} dB)", "u.a."),
+            (v["cg_mag"], "gray", 0.0, 1.0, f"CG-SENSE ({v['cg_psnr']:.2f} dB)", "u.a."),
+            (v["pinn_mag"], "gray", 0.0, 1.0, f"PINN |m(x)| ({v['pinn_psnr']:.2f} dB, SSIM {v['pinn_ssim']:.3f})", "u.a."),
+            (v["sigma"], "viridis", 0.0, 1.4, f"EPT σ(x) (Parénquima {v['paren_sigma']:.2f} S/m)", "S/m"),
+            (v["eps_r"], "plasma", 1.0, 80.0, f"EPT ε_r(x) (Media {v['paren_eps']:.1f})", "adim."),
         ]
         for col_idx, (arr, cmap, vmin, vmax, title, unit) in enumerate(panels):
             ax = axes[row_idx, col_idx]
             im = ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, interpolation="bilinear")
-            ax.set_title(title, pad=6, color="#f1f5f9", fontsize=8.8)
+            ax.set_title(title, pad=5, color="#0f172a", fontsize=8.3)
             ax.set_xticks([])
             ax.set_yticks([])
             for spine in ax.spines.values():
-                spine.set_edgecolor("#334155")
-                spine.set_linewidth(0.8)
+                spine.set_edgecolor("#94a3b8")
+                spine.set_linewidth(0.7)
+            if row_idx == 0 and col_idx == 2:
+                bar_len_px = (0.05 / 0.24) * 128
+                rect = Rectangle((128 - bar_len_px - 8, 118), bar_len_px, 2.5, facecolor="white", edgecolor="black", linewidth=0.5)
+                ax.add_patch(rect)
+                ax.text(
+                    128 - bar_len_px / 2.0 - 8,
+                    114.5,
+                    "5 cm",
+                    color="white",
+                    fontsize=6.8,
+                    fontweight="bold",
+                    ha="center",
+                    va="bottom",
+                    bbox=dict(boxstyle="round,pad=0.12", facecolor="black", alpha=0.55, edgecolor="none"),
+                )
             cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
-            cbar.ax.tick_params(labelsize=7.5, colors="#cbd5e1")
-            cbar.set_label(unit, fontsize=7.5, color="#94a3b8")
+            cbar.ax.tick_params(labelsize=7.2, colors="#1e293b")
+            cbar.set_label(unit, fontsize=7.2, color="#334155")
 
-    plt.tight_layout(rect=[0.0, 0.0, 1.0, 0.955])
+    plt.tight_layout(pad=0.9)
     fig3_path = out_dir / "fig3_external_blind_validation_300dpi.png"
-    fig.savefig(fig3_path, dpi=300, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    fig.savefig(fig3_path, dpi=300, facecolor="white", bbox_inches="tight")
     plt.close(fig)
 
-    # Actualizar benchmark_metrics.json con external_blind_validation
     metrics_json_path = out_dir / "benchmark_metrics.json"
     if metrics_json_path.exists():
         data_json = json.loads(metrics_json_path.read_text(encoding="utf-8"))
@@ -415,10 +417,7 @@ def main() -> None:
     metrics_json_path.write_text(json.dumps(data_json, indent=2), encoding="utf-8")
 
     print("=" * 92)
-    print(f" VALIDACION EXTERNA CIEGA COMPLETADA EN {time.perf_counter() - t0:.1f} s")
-    print("  1. data/external_public_brain_raw.h5 (Listo para cargar en visor PACS)")
-    print("  2. results/paper_artifacts/fig3_external_blind_validation_300dpi.png")
-    print("  3. results/paper_artifacts/benchmark_metrics.json (Actualizado)")
+    print(f" VALIDACION EXTERNA COMPLETADA EN {time.perf_counter() - t0:.1f} s")
     print("=" * 92)
 
 

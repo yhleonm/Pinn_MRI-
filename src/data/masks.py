@@ -19,37 +19,35 @@ def _cartesian_mask(
 
     mask = np.zeros((height, width), dtype=np.float32)
     center = width // 2
-    half_acs = max(2, acs_lines // 2)
+    target_lines = max(4, int(round(width / max(1, acceleration))))
+    eff_acs = min(acs_lines, max(4, target_lines - 4))
+    half_acs = max(2, eff_acs // 2)
     acs_start = max(0, center - half_acs)
     acs_end = min(width, center + half_acs)
     mask[:, acs_start:acs_end] = 1.0
 
-    target_lines = max(acs_end - acs_start, int(round(width / max(1, acceleration))))
     remaining_lines = max(0, target_lines - (acs_end - acs_start))
 
     if remaining_lines > 0:
-        # Muestreo estratificado de densidad variable (evita huecos mayores al factor R de SENSE)
-        left_cols = np.arange(1, acs_start)
-        right_cols = np.arange(acs_end, width - 1)
+        # Muestreo estratificado de densidad variable (garantiza exactamente target_lines columnas)
+        left_cols = np.arange(0, acs_start)
+        right_cols = np.arange(acs_end, width)
         n_left = remaining_lines // 2
         n_right = remaining_lines - n_left
 
-        if n_left > 0 and len(left_cols) > 0:
-            # Densidad mayor cerca de ACS (potencia 0.75 hacia el centro)
-            u_l = np.linspace(0.0, 1.0, n_left) ** 0.85
-            idx_l = np.unique(
-                (len(left_cols) - 1 - np.round(u_l * (len(left_cols) - 1)).astype(int)).clip(
-                    0, len(left_cols) - 1
-                )
-            )
-            mask[:, left_cols[idx_l]] = 1.0
-
-        if n_right > 0 and len(right_cols) > 0:
-            u_r = np.linspace(0.0, 1.0, n_right) ** 0.85
-            idx_r = np.unique(
-                np.round(u_r * (len(right_cols) - 1)).astype(int).clip(0, len(right_cols) - 1)
-            )
-            mask[:, right_cols[idx_r]] = 1.0
+        for cols, n_pick, flip in ((left_cols, n_left, True), (right_cols, n_right, False)):
+            if n_pick > 0 and len(cols) > 0:
+                u = np.linspace(0.0, 1.0, n_pick) ** 0.85
+                if flip:
+                    raw_idx = len(cols) - 1 - np.round(u * (len(cols) - 1)).astype(int)
+                else:
+                    raw_idx = np.round(u * (len(cols) - 1)).astype(int)
+                idx = np.unique(np.clip(raw_idx, 0, len(cols) - 1))
+                if len(idx) < n_pick:
+                    avail = np.setdiff1d(np.arange(len(cols)), idx)
+                    extra = avail[: (n_pick - len(idx))]
+                    idx = np.concatenate([idx, extra])
+                mask[:, cols[idx[:n_pick]]] = 1.0
 
     return mask
 
@@ -60,31 +58,44 @@ def _radial_mask(
     acceleration: int = 4,
     acs_lines: int = 18,
 ) -> np.ndarray:
-    """Mascara radial de angulo aureo (Golden-Angle) con disco central ACS."""
-    mask = np.zeros((height, width), dtype=np.float32)
+    """Mascara radial de angulo aureo (Golden-Angle) calibrada a fraccion 1/R exacta con disco ACS."""
     cy, cx = height / 2.0, width / 2.0
+    yy, xx = np.ogrid[:height, :width]
+    target_fraction = 1.0 / max(1.0, float(acceleration))
+    eff_acs = min(acs_lines, 18 if acceleration <= 4 else 12)
+    r_acs = max(4.0, eff_acs / 2.0)
+    acs_disc = ((yy - cy) ** 2 + (xx - cx) ** 2) <= (r_acs ** 2)
 
-    # Numero de rayos proporcional a aceleracion objetivo
-    num_spokes = max(12, int(round((height * math.pi / 2.0) / max(1, acceleration))))
     golden_angle = math.pi * (3.0 - math.sqrt(5.0))
     max_r = math.hypot(cy, cx)
     num_samples = int(max_r * 2.5)
     radii = np.linspace(-max_r, max_r, num_samples)
 
-    for s in range(num_spokes):
+    # Busqueda rapida del numero de rayos que iguala la fraccion muestreada 1/R
+    best_mask = np.zeros((height, width), dtype=np.float32)
+    best_diff = 1.0
+    min_spokes = 6
+    max_spokes = int(height * 1.6)
+    mask = np.zeros((height, width), dtype=np.float32)
+    mask[acs_disc] = 1.0
+
+    for s in range(max_spokes):
         theta = s * golden_angle
         cos_t, sin_t = math.cos(theta), math.sin(theta)
         xs = np.round(cx + radii * cos_t).astype(int)
         ys = np.round(cy + radii * sin_t).astype(int)
         valid = (xs >= 0) & (xs < width) & (ys >= 0) & (ys < height)
         mask[ys[valid], xs[valid]] = 1.0
+        if s + 1 >= min_spokes:
+            frac = float(mask.mean())
+            diff = abs(frac - target_fraction)
+            if diff < best_diff:
+                best_diff = diff
+                best_mask = mask.copy()
+            if frac > target_fraction + 0.01:
+                break
 
-    # Region central de autocalibracion (ACS)
-    yy, xx = np.ogrid[:height, :width]
-    r_acs = max(4.0, acs_lines / 2.0)
-    acs_disc = ((yy - cy) ** 2 + (xx - cx) ** 2) <= (r_acs ** 2)
-    mask[acs_disc] = 1.0
-    return mask
+    return best_mask
 
 
 def _poisson_disc_mask(

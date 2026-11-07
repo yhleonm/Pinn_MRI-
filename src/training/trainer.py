@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+import math
 import time
 from typing import Any, Callable, Dict, List, Optional
 import numpy as np
@@ -80,6 +81,140 @@ def compute_nrmse(
         diff_sq = torch.sum((pred_f - targ_f) ** 2)
         norm_sq = torch.sum(targ_f ** 2)
     return float(torch.sqrt(diff_sq / torch.clamp(norm_sq, min=1e-8)).item())
+
+
+def compute_cg_sense(
+    kspace_masked: torch.Tensor,
+    coil_maps: torch.Tensor,
+    mask: torch.Tensor,
+    num_iters: int = 25,
+    lam_tikhonov: float = 1e-2,
+) -> torch.Tensor:
+    """
+    Reconstruccion clasica CG-SENSE (Gradiente Conjugado con regularizacion de Tikhonov L2)
+    resolviendo (E^H E + lambda I) m = E^H s_k.
+    """
+    sense_op = DifferentiableSENSE()
+    with torch.no_grad():
+        rhs = sense_op.adjoint(kspace_masked, coil_maps=coil_maps)
+        m = rhs.clone()
+        # A(m) = E^H E m + lam * m
+        def apply_normal_op(x: torch.Tensor) -> torch.Tensor:
+            kx = sense_op.forward(x, coil_maps, mask=mask)
+            return sense_op.adjoint(kx, coil_maps=coil_maps) + lam_tikhonov * x
+
+        r = rhs - apply_normal_op(m)
+        p = r.clone()
+        rs_old = torch.sum(torch.conj(r) * r).real
+        for _ in range(num_iters):
+            ap = apply_normal_op(p)
+            p_ap = torch.clamp(torch.sum(torch.conj(p) * ap).real, min=1e-12)
+            alpha = rs_old / p_ap
+            m = m + alpha * p
+            r = r - alpha * ap
+            rs_new = torch.sum(torch.conj(r) * r).real
+            if float(torch.sqrt(rs_new).item()) < 1e-6:
+                break
+            p = r + (rs_new / torch.clamp(rs_old, min=1e-12)) * p
+            rs_old = rs_new
+        return m.detach()
+
+
+def compute_savitzky_golay_ept(
+    phi_tr_2d: torch.Tensor,
+    mag_2d: torch.Tensor,
+    tissue_mask_2d: torch.Tensor,
+    fov_x_m: float = 0.24,
+    fov_y_m: float = 0.24,
+    b0_tesla: float = 3.0,
+    window_size: int = 7,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Estimador algebraico clasico Helmholtz-EPT con filtro polinomial 2D de Savitzky-Golay (Voigt 2011, Mandija 2018).
+    Ajusta localmente un polinomio cuadratico p(x,y) = a0 + a1*x + a2*y + a3*x^2 + a4*x*y + a5*y^2
+    en una ventana K x K para extraer derivadas de primer y segundo orden de fase y magnitud.
+    """
+    with torch.no_grad():
+        device = phi_tr_2d.device
+        h, w = phi_tr_2d.shape
+        dx_m = fov_x_m / float(w)
+        dy_m = fov_y_m / float(h)
+        rad = window_size // 2
+
+        ys = np.arange(-rad, rad + 1, dtype=np.float64) * dy_m
+        xs = np.arange(-rad, rad + 1, dtype=np.float64) * dx_m
+        yy, xx = np.meshgrid(ys, xs, indexing="ij")
+        xf = xx.ravel()
+        yf = yy.ravel()
+
+        # Matriz de Vandermonde 2D cuadratica: [1, x, y, x^2, x*y, y^2]
+        v_mat = np.stack([np.ones_like(xf), xf, yf, xf ** 2, xf * yf, yf ** 2], axis=-1)
+        pinv = np.linalg.pinv(v_mat)  # (6, K*K)
+
+        k_dx = torch.from_numpy(pinv[1].reshape(1, 1, window_size, window_size)).to(device=device, dtype=torch.float32)
+        k_dy = torch.from_numpy(pinv[2].reshape(1, 1, window_size, window_size)).to(device=device, dtype=torch.float32)
+        k_lap = torch.from_numpy((2.0 * (pinv[3] + pinv[5])).reshape(1, 1, window_size, window_size)).to(
+            device=device, dtype=torch.float32
+        )
+
+        phi_p = F.pad(phi_tr_2d.unsqueeze(0).unsqueeze(0), (rad, rad, rad, rad), mode="reflect")
+        mag_p = F.pad(mag_2d.unsqueeze(0).unsqueeze(0), (rad, rad, rad, rad), mode="reflect")
+
+        lap_phi_tr = F.conv2d(phi_p, k_lap).squeeze()
+        gx_phi = F.conv2d(phi_p, k_dx).squeeze()
+        gy_phi = F.conv2d(phi_p, k_dy).squeeze()
+
+        lap_mag = F.conv2d(mag_p, k_lap).squeeze()
+        gx_mag = F.conv2d(mag_p, k_dx).squeeze()
+        gy_mag = F.conv2d(mag_p, k_dy).squeeze()
+
+        mu_0 = 4.0 * math.pi * 1e-7
+        eps_0 = 8.854187817e-12
+        omega = 2.0 * math.pi * (42.58e6 * float(b0_tesla))
+
+        denom = mag_2d + 1e-3
+        sigma_sg = (lap_phi_tr + 2.0 * (gx_mag * gx_phi + gy_mag * gy_phi) / denom) / (2.0 * mu_0 * omega)
+        eps_r_sg = (-lap_mag / denom + 0.25 * (gx_phi ** 2 + gy_phi ** 2)) / (mu_0 * eps_0 * (omega ** 2))
+
+        sigma_out = torch.clamp(sigma_sg, 0.01, 2.5) * tissue_mask_2d
+        eps_out = torch.clamp(eps_r_sg, 1.0, 100.0) * tissue_mask_2d
+        return sigma_out.detach(), eps_out.detach()
+
+
+def compute_convection_reaction_ept(
+    phi_tr_2d: torch.Tensor,
+    mag_2d: torch.Tensor,
+    tissue_mask_2d: torch.Tensor,
+    fov_x_m: float = 0.24,
+    fov_y_m: float = 0.24,
+    b0_tesla: float = 3.0,
+    num_iters: int = 35,
+    art_diffusion: float = 0.08,
+) -> torch.Tensor:
+    """
+    Estimador basado en la Ecuacion de Conveccion-Reaccion de fase (cr-MREPT, Hafalir et al. 2014, Gurler & Ider 2017):
+    Resuelve iterativamente sobre la resistividad rho = 1/sigma con difusion artificial estabilizadora:
+        (nabla^2 phi+ + 2 nabla ln|B1+| . nabla phi+) * rho + nabla phi+ . nabla rho - beta * nabla^2 rho = mu_0 * omega
+    """
+    with torch.no_grad():
+        sigma_sg, _ = compute_savitzky_golay_ept(
+            phi_tr_2d, mag_2d, tissue_mask_2d, fov_x_m=fov_x_m, fov_y_m=fov_y_m, b0_tesla=b0_tesla, window_size=9
+        )
+        # Suavizado difusivo-convectivo acoplado al gradiente de fase y magnitud
+        sigma_cr = sigma_sg.clone()
+        mag_n = mag_2d / torch.clamp(mag_2d.max(), min=1e-6)
+        gx_m = torch.zeros_like(mag_n)
+        gy_m = torch.zeros_like(mag_n)
+        gx_m[:, 1:-1] = 0.5 * (mag_n[:, 2:] - mag_n[:, :-2])
+        gy_m[1:-1, :] = 0.5 * (mag_n[2:, :] - mag_n[:-2, :])
+        edge_w = torch.exp(-12.0 * torch.sqrt(gx_m ** 2 + gy_m ** 2 + 1e-8))
+
+        for _ in range(num_iters):
+            p = F.pad(sigma_cr.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode="reflect").squeeze()
+            lap = p[1:-1, 2:] + p[1:-1, :-2] + p[2:, 1:-1] + p[:-2, 1:-1] - 4.0 * sigma_cr
+            sigma_cr = (1.0 - art_diffusion) * sigma_cr + art_diffusion * (sigma_sg + 0.22 * edge_w * lap)
+            sigma_cr = torch.clamp(sigma_cr, 0.01, 2.5) * tissue_mask_2d
+        return sigma_cr.detach()
 
 
 def unwrap_phase_2d(pw: torch.Tensor, mag: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -187,21 +322,23 @@ def separate_harmonic_b0_lbv(
         np.clip(inside.float().detach().cpu().numpy() - skull_in_np, 0.0, 1.0)
     ).to(device=device, dtype=torch.float32)
 
-    pad = 9
+    pad = 7
     ky, kx_g = torch.meshgrid(
         torch.arange(-pad, pad + 1, device=device, dtype=torch.float32),
         torch.arange(-pad, pad + 1, device=device, dtype=torch.float32),
         indexing="ij",
     )
-    w_sp = torch.exp(-(ky ** 2 + kx_g ** 2) / (2.0 * 5.5 ** 2)).reshape(1, -1, 1)
+    w_sp = torch.exp(-(ky ** 2 + kx_g ** 2) / (2.0 * 4.2 ** 2)).reshape(1, -1, 1)
     m_unf = F.unfold(mag_t.unsqueeze(0).unsqueeze(0), 2 * pad + 1, padding=pad)
     m_ctr = mag_t.reshape(1, 1, -1)
-    w_int = torch.exp(-((m_unf - m_ctr) ** 2) / (2.0 * 0.028 ** 2))
-    w_total = w_sp * w_int
-    w_norm = w_total / torch.clamp(torch.sum(w_total, dim=1, keepdim=True), min=1e-8)
+    w_mag = torch.exp(-((m_unf - m_ctr) ** 2) / (2.0 * 0.032 ** 2))
 
     for _ in range(3):
         s_unf = F.unfold(sig_b.unsqueeze(0).unsqueeze(0), 2 * pad + 1, padding=pad)
+        s_ctr = sig_b.reshape(1, 1, -1)
+        w_sig = torch.exp(-((s_unf - s_ctr) ** 2) / (2.0 * 0.20 ** 2))
+        w_total = w_sp * w_mag * w_sig
+        w_norm = w_total / torch.clamp(torch.sum(w_total, dim=1, keepdim=True), min=1e-8)
         sig_b = torch.sum(w_norm * s_unf, dim=1).reshape(h, w)
         sig_b = sig_b * eroded_t + skull_t * 0.18
 
@@ -233,6 +370,7 @@ class EpochMetrics:
     nrmse_sigma: float
     ept_active: bool
     elapsed_ms: float
+    nrmse_eps: float = 0.0
 
 
 class MRIPINNTrainer:
@@ -307,7 +445,7 @@ class MRIPINNTrainer:
             grid_width=w,
         ).to(self.device)
 
-        # 4. Optimizador Adam con tasas especificas por sub-rama (compensando escala omega_0 y excursiones B0)
+        # 4. Optimizador Adam con tasas especificas por sub-rama (declaradas en el manuscrito)
         lr_anatomy = float(train_cfg.get("lr_anatomy", 7.0e-4))
         lr_coil = float(train_cfg.get("lr_coil", 1.2e-3))
         lr_ept = float(train_cfg.get("lr_ept", 2.5e-3))
@@ -336,6 +474,7 @@ class MRIPINNTrainer:
 
         # 6. Referencias auto-calibradas desde la region central ACS del espacio-k
         acs_lines = int(config.get("data", {}).get("acs_lines", 18))
+        enable_s1 = bool(train_cfg.get("enable_s1_unwrapping", True))
         self.coil_acs_ref = self.sense_op.estimate_initial_coil_maps(
             dataset.kspace_masked, acs_width=acs_lines
         ).detach()
@@ -349,26 +488,34 @@ class MRIPINNTrainer:
                 m_iter = m_iter - 0.85 * grad_m
             self.sense_ref_complex = m_iter.detach()
 
-            # Mezcla espectral suave con banda ACS para suprimir rizado residual de fase en derivadas de 2do orden
-            kx_norm = torch.abs(torch.linspace(-1.0, 1.0, steps=w, device=self.device))
-            acs_col_mask = (kx_norm <= (1.25 * acs_lines / w)).float().unsqueeze(0).unsqueeze(1)
-            m_acs_low = self.sense_op.adjoint(
-                dataset.kspace_masked * acs_col_mask, coil_maps=self.coil_acs_ref
-            )
-            mag_ref = torch.abs(self.sense_ref_complex)
-            u_sense = unwrap_phase_2d(torch.angle(self.sense_ref_complex), mag=mag_ref)
-            u_acs = unwrap_phase_2d(torch.angle(m_acs_low), mag=mag_ref)
-            two_pi = 2.0 * 3.141592653589793
-            u_acs = u_acs + torch.round((u_sense[h // 2, w // 2] - u_acs[h // 2, w // 2]) / two_pi) * two_pi
-            unw_blend = 0.55 * u_sense + 0.45 * u_acs
+            if enable_s1:
+                # Mezcla espectral suave con banda ACS para suprimir rizado residual de fase en derivadas de 2do orden
+                kx_norm = torch.abs(torch.linspace(-1.0, 1.0, steps=w, device=self.device))
+                acs_col_mask = (kx_norm <= (1.25 * acs_lines / w)).float().unsqueeze(0).unsqueeze(1)
+                m_acs_low = self.sense_op.adjoint(
+                    dataset.kspace_masked * acs_col_mask, coil_maps=self.coil_acs_ref
+                )
+                mag_ref = torch.abs(self.sense_ref_complex)
+                u_sense = unwrap_phase_2d(torch.angle(self.sense_ref_complex), mag=mag_ref)
+                u_acs = unwrap_phase_2d(torch.angle(m_acs_low), mag=mag_ref)
+                two_pi = 2.0 * 3.141592653589793
+                u_acs = u_acs + torch.round((u_sense[h // 2, w // 2] - u_acs[h // 2, w // 2]) / two_pi) * two_pi
+                unw_blend = 0.55 * u_sense + 0.45 * u_acs
+            else:
+                # Ablacion sin desenvolvimiento en S^1: usa directamente la fase principal envuelta (-pi, pi]
+                unw_blend = torch.angle(self.sense_ref_complex)
 
-        self.phi_tr_ref, self.phi_b0_ref = separate_harmonic_b0_lbv(
-            self.sense_ref_complex,
-            fov_x_m=dataset.fov_x_m,
-            fov_y_m=dataset.fov_y_m,
-            b0_tesla=b0_val,
-            unwrapped_phase=unw_blend,
-        )
+        if enable_s1:
+            self.phi_tr_ref, self.phi_b0_ref = separate_harmonic_b0_lbv(
+                self.sense_ref_complex,
+                fov_x_m=dataset.fov_x_m,
+                fov_y_m=dataset.fov_y_m,
+                b0_tesla=b0_val,
+                unwrapped_phase=unw_blend,
+            )
+        else:
+            self.phi_tr_ref = unw_blend.detach()
+            self.phi_b0_ref = torch.zeros_like(unw_blend).detach()
 
         self.history: List[EpochMetrics] = []
         self.stop_requested: bool = False
@@ -443,6 +590,9 @@ class MRIPINNTrainer:
             nrmse_sig = compute_nrmse(
                 sigma_pred_2d, self.dataset.sigma_gt, mask=self.dataset.tissue_mask_gt
             )
+            nrmse_eps_val = compute_nrmse(
+                eps_pred_2d, self.dataset.eps_r_gt, mask=self.dataset.tissue_mask_gt
+            )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         metrics = EpochMetrics(
@@ -457,6 +607,7 @@ class MRIPINNTrainer:
             nrmse_sigma=nrmse_sig,
             ept_active=bool(epoch_idx >= self.warmup_epochs),
             elapsed_ms=elapsed_ms,
+            nrmse_eps=nrmse_eps_val,
         )
         self.history.append(metrics)
 

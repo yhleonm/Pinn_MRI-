@@ -58,7 +58,7 @@ export const MultiPanelViewer: React.FC<MultiPanelViewerProps> = ({
   const fovXmm = (datasetState?.fov_x_m || 0.24) * 1000.0;
   const fovYmm = (datasetState?.fov_y_m || 0.24) * 1000.0;
   const b0Tesla = datasetState?.b0_tesla || 3.0;
-  const sarMaxRange = b0Tesla >= 6.0 ? 10.5 : b0Tesla >= 2.5 ? 4.2 : 2.0;
+  const sarMaxRange = b0Tesla >= 6.0 ? 16.0 : b0Tesla >= 2.5 ? 3.5 : 1.0;
 
   // Detectar coordenadas exactas y estadisticas de conductividad + SAR del ROI Tumoral en tiempo real
   const tumorRoiStats = useMemo(() => {
@@ -187,8 +187,8 @@ export const MultiPanelViewer: React.FC<MultiPanelViewerProps> = ({
           id: "eps",
           title: showGroundTruth
             ? "4. Dosimetría RF GT SAR_gt(x)"
-            : "4. Dosimetría Térmica RF SAR(x)",
-          subtitle: `Ley Ampère-Maxwell σ|E|²/2ρ @ ${b0Tesla.toFixed(1)}T`,
+            : "4. Estimación Dosimétrica RF SAR(x)",
+          subtitle: `Aprox. Cuasi-Estática Birdcage σ|E|²/2ρ @ ${b0Tesla.toFixed(1)}T`,
           unit: "W/kg",
           matrix: showGroundTruth ? maps.sar_gt : maps.sar,
           minVal: 0.0,
