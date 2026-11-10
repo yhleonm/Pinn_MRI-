@@ -47,15 +47,18 @@ flowchart LR
 
 ![Reconstrucción Multi-Campo y Estimación SAR](results/paper_artifacts/fig1_multifield_ept_sar_300dpi.png)
 
-| Campo $B_0$ ($f_0$) y Método | $\text{PSNR}$ (dB) | $\text{SSIM}$ | $\text{NRMSE}_{\sigma}$ | $\text{NRMSE}_{\varepsilon_r}$ | $\hat{\sigma}_{\text{ROI}}$ (S/m) | $\text{SAR}_{\text{sano}}$ / $\text{SAR}_{\text{ROI}}$ (W/kg) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Adjunto Zero-Filled ($3.0\text{ T}$)** | $34.15 \pm 0.08$ | $0.9163 \pm 0.0021$ | --- | --- | --- | --- |
-| **CG-SENSE ($3.0\text{ T}$, 15 iter.)** | $40.02 \pm 0.11$ | $0.9584 \pm 0.0018$ | --- | --- | --- | --- |
-| **Savitzky-Golay EPT ($3.0\text{ T}$)** | $40.02 \pm 0.11$ | $0.9584 \pm 0.0018$ | $1.2134 \pm 0.0310$ | $0.3512 \pm 0.0140$ | $0.54 \pm 0.06$ | --- |
-| **cr-MREPT Convección-Reacción ($3.0\text{ T}$)** | $40.02 \pm 0.11$ | $0.9584 \pm 0.0018$ | $0.6504 \pm 0.0195$ | $0.2890 \pm 0.0112$ | $0.82 \pm 0.04$ | --- |
-| **PINN-EPT ($1.5\text{ T}$, $63.87\text{ MHz}$)** | **$43.20 \pm 0.18$** | **$0.9854 \pm 0.0012$** | $0.2422 \pm 0.0041$ | $0.2444 \pm 0.0052$ | $0.97 \pm 0.01$ ($\text{GT } 1.10$) | $0.14$ / **$0.38$** |
-| **PINN-EPT ($3.0\text{ T}$, $127.74\text{ MHz}$)** | **$42.19 \pm 0.21$** | $0.9721 \pm 0.0019$ | **$0.2371 \pm 0.0038$** | $0.1945 \pm 0.0045$ | $1.04 \pm 0.01$ ($\text{GT } 1.20$) | $0.59$ / **$1.65$** |
-| **PINN-EPT ($7.0\text{ T}$, $298.06\text{ MHz}$)** | $41.05 \pm 0.24$ | $0.9701 \pm 0.0022$ | $0.2392 \pm 0.0044$ | **$0.1649 \pm 0.0039$** | **$1.18 \pm 0.02$** ($\text{GT } 1.34$) | $3.62$ / **$10.17$** |
+| Estudio / Método Evaluado | Campo $B_0$ ($f_0$) | $\text{PSNR}_{\text{ZF}}$ (dB) | $\text{PSNR}_{\text{CG}}$ (dB) | $\text{PSNR}_{\text{PINN}}$ (dB) | $\text{SSIM}$ | $\text{NRMSE}_{\sigma}$ | $\hat{\sigma}_{\text{ROI}}/\sigma_{\text{GT}}$ (S/m) | $\text{NRMSE}_{\varepsilon_r}$ | $\text{SAR}_{\text{sano}}/\text{SAR}_{\text{tumor}}$ (W/kg) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Fantoma Numérico ($R=4\times$ Radial, $N=5$)** | $1.5\text{ T}$ ($63.9\text{ MHz}$) | $29.17$ | $36.29$ | **$40.70 \pm 0.38$** | **$0.9572 \pm 0.0130$** | $0.3872 \pm 0.0213$ | $0.94 \pm 0.03 / 1.11$ | $0.3340 \pm 0.0049$ | $0.16$ / **$0.57$** |
+| **Fantoma Numérico ($R=4\times$ Radial, $N=5$)** | $3.0\text{ T}$ ($127.7\text{ MHz}$) | $28.97$ | $36.06$ | **$40.51 \pm 1.07$** | $0.9532 \pm 0.0115$ | $0.2956 \pm 0.0138$ | $1.01 \pm 0.05 / 1.20$ | $0.2444 \pm 0.0074$ | $0.62$ / **$2.46$** |
+| **Fantoma Numérico ($R=4\times$ Radial, $N=5$)** | $7.0\text{ T}$ ($298.1\text{ MHz}$) | $27.28$ | $34.34$ | **$39.33 \pm 1.26$** | $0.9261 \pm 0.0138$ | **$0.2523 \pm 0.0030$** | **$1.15 \pm 0.05 / 1.32$** | **$0.1649 \pm 0.0091$** | $3.28$ / **$15.03$** |
+| **Ref. 1: Adjunto $\mathcal{E}^H s_k$ + SG-EPT ($7\times 7$)** | $3.0\text{ T}$ ($R=4\times$ Pois.) | $30.09$ | $37.46$ | $30.09$ | $0.5712$ | $1.2255$ | $0.99 / 1.20$ | $1.1116$ | $0.96$ / $2.18$ |
+| **Ref. 2: CG-SENSE + Savitzky-Golay EPT** | $3.0\text{ T}$ ($R=4\times$ Pois.) | $30.09$ | $37.46$ | $37.46$ | $0.7202$ | $0.7807$ | $1.01 / 1.20$ | $1.1113$ | $0.90$ / $2.38$ |
+| **Ref. 3: CG-SENSE + cr-MREPT** | $3.0\text{ T}$ ($R=4\times$ Pois.) | $30.09$ | $37.46$ | $37.46$ | $0.7202$ | $0.6886$ | $0.97 / 1.20$ | $1.1113$ | $0.80$ / $2.26$ |
+| **Ablación 1: Imagen PINN ($\lambda_\sigma=0$) + SG-EPT** | $3.0\text{ T}$ ($R=4\times$ Pois.) | $30.09$ | $37.46$ | $41.71$ | $0.9592$ | $0.6220$ | $0.94 / 1.20$ | $1.1163$ | $0.88$ / $2.15$ |
+| **Ablación 2: PINN sin desenv. $\mathbb{S}^1$ ($2\pi$)** | $7.0\text{ T}$ ($R=4\times$ Pois.) | $28.76$ | $36.35$ | $31.88$ | $0.9383$ | $0.9429$ | $0.44 / 1.32$ | $0.5689$ | $7.40$ / $5.95$ |
+| **Propuesta: Decoupled MRI-PINN Completa** | $3.0\text{ T}$ ($R=4\times$ Pois.) | $30.09$ | $37.46$ | **$41.73$** | **$0.9592$** | **$0.2482$** | **$0.99 / 1.20$** | **$0.2235$** | $0.62$ / **$2.34$** |
+| **Propuesta: Decoupled MRI-PINN Completa** | $7.0\text{ T}$ ($R=4\times$ Pois.) | $28.76$ | $36.35$ | **$40.03$** | **$0.9520$** | **$0.2400$** | **$1.16 / 1.32$** | **$0.1569$** | $3.38$ / **$15.54$** |
 
 ---
 
@@ -63,28 +66,28 @@ flowchart LR
 
 ![Prueba de Estrés R=8x con Fracción Emparejada](results/paper_artifacts/fig2_ablation_8x_trajectories_300dpi.png)
 
-| Aceleración | Trayectoria $\mathbf{P}(\mathbf{k})$ | Muestreo | $\text{PSNR}_{\text{ZF}}$ (dB) | $\text{PSNR}_{\text{CG-SENSE}}$ (dB) | $\text{PSNR}_{\text{PINN}}$ (dB) | $\text{SSIM}_{\text{PINN}}$ | $\text{NRMSE}_{\sigma}$ | $\text{NRMSE}_{\varepsilon_r}$ |
-| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **$R=4\times$** | `CARTESIAN` | $25.0\%$ | $27.43$ | $31.49$ | $30.08 \pm 0.25$ | $0.8206$ | $0.2810$ | $0.2185$ |
-| **$R=4\times$** | `RADIAL` | $25.1\%$ | $31.65$ | $37.75$ | **$40.66 \pm 0.19$** | $0.9557$ | $0.2361$ | $0.1920$ |
-| **$R=4\times$** | `POISSON` | $25.0\%$ | $30.18$ | $39.35$ | **$42.65 \pm 0.17$** | **$0.9781$** | **$0.2300$** | **$0.1912$** |
-| **$R=8\times$** | `CARTESIAN` | $12.5\%$ | $25.49$ | $28.14$ | $27.44 \pm 0.31$ | $0.8225$ | $0.3005$ | $0.2289$ |
-| **$R=8\times$** | `RADIAL` | $12.6\%$ | $27.64$ | $32.16$ | **$34.50 \pm 0.28$** | **$0.8808$** | **$0.2640$** | **$0.1924$** |
-| **$R=8\times$** | `POISSON` | $12.5\%$ | $27.16$ | $33.90$ | **$34.93 \pm 0.26$** | $0.8801$ | $0.2683$ | $0.1951$ |
+| Aceleración | Trayectoria $\mathbf{P}(\mathbf{k})$ | Muestreo | $\text{PSNR}_{\text{ZF}}$ (dB) | $\text{PSNR}_{\text{CG}}$ (dB) | $\text{PSNR}_{\text{PINN}}$ (dB) | $\text{SSIM}_{\text{PINN}}$ | $\text{NRMSE}_{\sigma}$ | $\text{NRMSE}_{\varepsilon_r}$ | $\hat{\sigma}_{\text{ROI}}/\sigma_{\text{GT}}$ (S/m) |
+| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **$R=4\times$** | `CARTESIAN` | $25.0\%$ | $27.48$ | $28.79$ | $29.59$ ($+2.11$) | $0.8412$ | $0.5318$ | $0.2794$ | $0.94 / 1.20$ |
+| **$R=4\times$** | `RADIAL` | $25.3\%$ | $28.99$ | $36.07$ | $40.82$ (**$+11.83$**) | $0.9463$ | $0.3028$ | $0.2484$ | $0.96 / 1.20$ |
+| **$R=4\times$** | `POISSON` | $25.0\%$ | $30.09$ | $37.46$ | **$41.73$** ($+11.64$) | **$0.9592$** | **$0.2482$** | **$0.2235$** | **$0.99 / 1.20$** |
+| **$R=8\times$** | `CARTESIAN` | $12.5\%$ | $23.92$ | $24.55$ | $25.16$ ($+1.24$) | $0.7553$ | $0.6038$ | $0.3640$ | $1.14 / 1.20$ |
+| **$R=8\times$** | `RADIAL` | $12.8\%$ | $24.32$ | $29.30$ | $32.78$ ($+8.46$) | $0.8576$ | $0.4506$ | $0.3190$ | $0.98 / 1.20$ |
+| **$R=8\times$** | `POISSON` | $12.5\%$ | $27.14$ | $33.72$ | **$36.01$** (**$+8.87$**) | **$0.9132$** | **$0.3948$** | **$0.2690$** | $1.03 / 1.20$ |
 
 ---
 
 ### 3.3 Validación Externa sobre Adquisición Cerebral Pública de 8 Bobinas (UC Berkeley / BART ISMRM)
 
-Evaluación directa con hiperparámetros fijos sobre el corte axial cerebral humano real de $8$ bobinas del repositorio público de la Universidad de California en Berkeley (`mrirecon/bart-workshop/ismrm2016/pics-brain` & `mikgroup/sigpy-mri-tutorial`):
+Evaluación con hiperparámetros fijos sobre el corte axial cerebral humano de $8$ bobinas del repositorio público de la Universidad de California en Berkeley (`mrirecon/bart-workshop/ismrm2016/pics-brain`):
 
 ![Validación Externa UC Berkeley](results/paper_artifacts/fig3_external_blind_validation_300dpi.png)
 
-| Régimen de Sub-muestreo (UC Berkeley 8-Ch) | Muestreo | $\text{PSNR}_{\text{ZF}}$ (dB) | $\text{PSNR}_{\text{CG-SENSE}}$ (dB) | $\text{PSNR}_{\text{PINN}}$ (dB) | $\text{SSIM}_{\text{PINN}}$ | $\text{NRMSE}_{\sigma}^{\text{ref}}$ | $\bar{\sigma}_{\text{tejido}}$ (S/m) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **UC Berkeley 8-Ch In-Vivo ($R=4\times$ Radial)** | $25.1\%$ | $24.72$ | $28.43$ | **$31.65$** ($+6.93$) | **$0.8920$** | $0.3694$ | $0.56$ |
-| **UC Berkeley 8-Ch In-Vivo ($R=4\times$ Poisson-disc)** | $25.0\%$ | $24.10$ | $29.63$ | **$32.94$** ($+8.83$) | $0.8911$ | $0.3647$ | $0.57$ |
-| **UC Berkeley 8-Ch In-Vivo ($R=8\times$ Poisson Nativo)** | $13.6\%$ | $21.68$ | $26.82$ | **$29.33$** ($+7.65$) | $0.8457$ | **$0.3548$** | $0.57$ |
+| Régimen de Muestreo (UC Berkeley 8-Ch) | Muestreo | $\text{PSNR}_{\text{ZF}}$ (dB) | $\text{PSNR}_{\text{CG}}$ (dB) | $\text{PSNR}_{\text{PINN}}$ (dB) | $\text{SSIM}_{\text{PINN}}$ | $\bar{\sigma}_{\text{par}}$ (S/m) | $\bar{\sigma}_{\text{LCR}}$ (S/m) | $\bar{\varepsilon}_{r,\text{par}}$ |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Retrospectivo Híbrido ($R=4\times$ Radial Áureo)** | $25.3\%$ | $23.21$ | **$31.60$** | $30.46$ ($+7.25$) | $0.8625$ | $0.47$ | $0.90$ | $39.2$ |
+| **Retrospectivo Híbrido ($R=4\times$ Poisson-disc)** | $25.0\%$ | $24.10$ | **$34.44$** | $32.38$ ($+8.28$) | $0.8759$ | $0.46$ | $0.90$ | $37.5$ |
+| **Prospectivo Crudo Nativo (`ksp.cfl`, $R\approx 8\times$)** | **$13.6\%$** | $21.68$ | $29.11$ | **$29.40$** (**$+7.72$**) | **$0.8344$** | $0.50$ | $0.90$ | $41.0$ |
 
 ---
 

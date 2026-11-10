@@ -699,12 +699,12 @@ def generate_clinical_in_vivo_brain_phantom(
     acceleration: int = 4,
     acs_lines: int = 18,
     seed: int = 108,
+    contrast_mode: str = "coupled",
     device: torch.device | str = "cuda",
 ) -> SyntheticPhantomDataset:
     """
-    Genera un corte axial neuro-oncologico in-vivo con textura tisular heterogenea,
-    desplazamiento de linea media por efecto de masa, susceptibilidad frontal Delta B0,
-    desfases electronicos de cable entre antenas y matriz de covarianza de ruido acoplado Sigma_coil.
+    Genera un fantoma numerico antropomorfico 2D de cerebro humano multi-bobina con textura tisular
+    heterogenea, susceptibilidad armonica Delta B0 y matriz de covarianza de ruido acoplado Sigma_coil.
     """
     base_ds = generate_realistic_brain_ept_phantom(
         height=height,
@@ -718,6 +718,7 @@ def generate_clinical_in_vivo_brain_phantom(
         acceleration=acceleration,
         acs_lines=acs_lines,
         seed=seed,
+        contrast_mode=contrast_mode,
         device=device,
     )
     rng = np.random.default_rng(seed)

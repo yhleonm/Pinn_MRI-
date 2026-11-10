@@ -306,20 +306,30 @@ def main() -> None:
     # ESTUDIO 2: Comparacion con Referencias Clasicas (CG-SENSE, SG-EPT, cr-EPT) y Ablaciones
     # -------------------------------------------------------------------------
     print("\n[Estudio 2/5] Evaluando Referencias Clasicas (CG-SENSE, SG-EPT, cr-MREPT) y Ablaciones (3.0T y 7.0T)...")
-    torch.manual_seed(42)
-    np.random.seed(42)
-    ds_3t = load_h5_kspace_slice(cortical_h5, mask_type="poisson", acceleration=4, b0_tesla=3.0, device=device)
-    ds_7t = load_h5_kspace_slice(cortical_h5, mask_type="poisson", acceleration=4, b0_tesla=7.0, device=device)
-    tmask_3t, _ = _get_tumor_and_healthy_masks(ds_3t)
-    tmask_7t, _ = _get_tumor_and_healthy_masks(ds_7t)
+    torch.manual_seed(108)
+    np.random.seed(108)
+    ds_3t = generate_clinical_in_vivo_brain_phantom(
+        b0_tesla=3.0, noise_snr_db=33.0, mask_type="poisson", acceleration=4, seed=108, device=device
+    )
+    torch.manual_seed(108)
+    np.random.seed(108)
+    ds_7t = generate_clinical_in_vivo_brain_phantom(
+        b0_tesla=7.0, noise_snr_db=33.0, mask_type="poisson", acceleration=4, seed=108, device=device
+    )
+    tmask_3t, hmask_3t = _get_tumor_and_healthy_masks(ds_3t)
+    tmask_7t, hmask_7t = _get_tumor_and_healthy_masks(ds_7t)
 
     # 1. Propuesta Completa @ 3.0T
+    torch.manual_seed(108)
+    np.random.seed(108)
     cfg_full_3t = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs)
     tr_full_3t = MRIPINNTrainer(dataset=ds_3t, config=cfg_full_3t, device=device)
     h_full_3t, m_full_3t = tr_full_3t.train(epochs=epochs, verbose=False)
     roi_full_3t = _extract_roi_metrics(ds_3t, m_full_3t)
 
     # 2. Propuesta Completa @ 7.0T
+    torch.manual_seed(108)
+    np.random.seed(108)
     cfg_full_7t = _base_config(b0_tesla=7.0, mask_type="poisson", acceleration=4, epochs=epochs)
     tr_full_7t = MRIPINNTrainer(dataset=ds_7t, config=cfg_full_7t, device=device)
     h_full_7t, m_full_7t = tr_full_7t.train(epochs=epochs, verbose=False)
@@ -333,9 +343,15 @@ def main() -> None:
     sig_zf_sg, eps_zf_sg = compute_savitzky_golay_ept(
         zf_phi_unw, zf_mag_3t, ds_3t.tissue_mask_gt, b0_tesla=3.0, window_size=7
     )
+    sar_zf_sg = (
+        HelmholtzEPTOperator.compute_local_sar(sig_zf_sg, zf_mag_3t, b0_tesla=3.0) * ds_3t.tissue_mask_gt
+    )
     nrmse_sig_zf_sg = compute_nrmse(sig_zf_sg, ds_3t.sigma_gt, mask=ds_3t.tissue_mask_gt)
     nrmse_eps_zf_sg = compute_nrmse(eps_zf_sg, ds_3t.eps_r_gt, mask=ds_3t.tissue_mask_gt)
     tsig_zf_sg = float(sig_zf_sg[tmask_3t].mean().item())
+    teps_zf_sg = float(eps_zf_sg[tmask_3t].mean().item())
+    hsar_zf_sg = float(sar_zf_sg[hmask_3t].mean().item())
+    tsar_zf_sg = float(sar_zf_sg[tmask_3t].mean().item())
 
     # 4. Referencia 2: CG-SENSE + Helmholtz-EPT Savitzky-Golay (CG-SENSE + SG-EPT) @ 3.0T
     cg_3t = compute_cg_sense(ds_3t.kspace_masked, tr_full_3t.coil_acs_ref, ds_3t.mask)
@@ -346,30 +362,53 @@ def main() -> None:
     sig_cg_sg, eps_cg_sg = compute_savitzky_golay_ept(
         cg_phi_unw, cg_mag_3t, ds_3t.tissue_mask_gt, b0_tesla=3.0, window_size=7
     )
+    sar_cg_sg = (
+        HelmholtzEPTOperator.compute_local_sar(sig_cg_sg, cg_mag_3t, b0_tesla=3.0) * ds_3t.tissue_mask_gt
+    )
     nrmse_sig_cg_sg = compute_nrmse(sig_cg_sg, ds_3t.sigma_gt, mask=ds_3t.tissue_mask_gt)
     nrmse_eps_cg_sg = compute_nrmse(eps_cg_sg, ds_3t.eps_r_gt, mask=ds_3t.tissue_mask_gt)
     tsig_cg_sg = float(sig_cg_sg[tmask_3t].mean().item())
+    teps_cg_sg = float(eps_cg_sg[tmask_3t].mean().item())
+    hsar_cg_sg = float(sar_cg_sg[hmask_3t].mean().item())
+    tsar_cg_sg = float(sar_cg_sg[tmask_3t].mean().item())
 
     # 5. Referencia 3: CG-SENSE + cr-MREPT (Conveccion-Reaccion, Hafalir 2014) @ 3.0T
     sig_cg_cr = compute_convection_reaction_ept(
         cg_phi_unw, cg_mag_3t, ds_3t.tissue_mask_gt, b0_tesla=3.0
     )
+    sar_cg_cr = (
+        HelmholtzEPTOperator.compute_local_sar(sig_cg_cr, cg_mag_3t, b0_tesla=3.0) * ds_3t.tissue_mask_gt
+    )
     nrmse_sig_cg_cr = compute_nrmse(sig_cg_cr, ds_3t.sigma_gt, mask=ds_3t.tissue_mask_gt)
     tsig_cg_cr = float(sig_cg_cr[tmask_3t].mean().item())
+    hsar_cg_cr = float(sar_cg_cr[hmask_3t].mean().item())
+    tsar_cg_cr = float(sar_cg_cr[tmask_3t].mean().item())
 
     # 6. Ablacion A: PINN-SENSE (lambda_sigma=0) + Savitzky-Golay EPT post-hoc sobre fase PINN @ 3.0T
+    torch.manual_seed(108)
+    np.random.seed(108)
     cfg_no_ept = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs, lambda_ept_sigma=0.0)
     tr_no_ept = MRIPINNTrainer(dataset=ds_3t, config=cfg_no_ept, device=device)
     h_no_ept, m_no_ept = tr_no_ept.train(epochs=epochs, verbose=False)
     sig_pinn_sg, eps_pinn_sg = compute_savitzky_golay_ept(
         m_no_ept["phi_tr"], m_no_ept["m_mag"], ds_3t.tissue_mask_gt, b0_tesla=3.0, window_size=7
     )
+    sar_pinn_sg = (
+        HelmholtzEPTOperator.compute_local_sar(sig_pinn_sg, m_no_ept["m_mag"], b0_tesla=3.0) * ds_3t.tissue_mask_gt
+    )
     nrmse_sig_pinn_sg = compute_nrmse(sig_pinn_sg, ds_3t.sigma_gt, mask=ds_3t.tissue_mask_gt)
     nrmse_eps_pinn_sg = compute_nrmse(eps_pinn_sg, ds_3t.eps_r_gt, mask=ds_3t.tissue_mask_gt)
     tsig_pinn_sg = float(sig_pinn_sg[tmask_3t].mean().item())
+    teps_pinn_sg = float(eps_pinn_sg[tmask_3t].mean().item())
+    hsar_pinn_sg = float(sar_pinn_sg[hmask_3t].mean().item())
+    tsar_pinn_sg = float(sar_pinn_sg[tmask_3t].mean().item())
 
     # 7. Ablacion B: Decoupled MRI-PINN sin desenvolvimiento en S^1 a 7.0T (sobre el mismo ds_7t)
     zf_psnr_7t = compute_psnr(torch.abs(ds_7t.zero_filled), ds_7t.m_mag_gt)
+    cg_7t = compute_cg_sense(ds_7t.kspace_masked, tr_full_7t.coil_acs_ref, ds_7t.mask)
+    cg_psnr_7t = compute_psnr(torch.abs(cg_7t), ds_7t.m_mag_gt)
+    torch.manual_seed(108)
+    np.random.seed(108)
     cfg_no_s1_7t = _base_config(
         b0_tesla=7.0, mask_type="poisson", acceleration=4, epochs=epochs, enable_s1_unwrapping=False
     )
@@ -382,78 +421,120 @@ def main() -> None:
             "method": "Adjunto Zero-Filled + SG-EPT ($7\\times 7$)",
             "b0_tesla": 3.0,
             "zf_psnr": zf_psnr_3t,
+            "cg_psnr": cg_psnr_3t,
             "psnr_db": zf_psnr_3t,
             "ssim": zf_ssim_3t,
             "nrmse_sigma": nrmse_sig_zf_sg,
             "nrmse_eps": nrmse_eps_zf_sg,
             "tumor_sigma": tsig_zf_sg,
+            "tumor_sigma_gt": roi_full_3t["tumor_sigma_gt"],
+            "tumor_eps": teps_zf_sg,
+            "tumor_eps_gt": roi_full_3t["tumor_eps_gt"],
+            "healthy_sar": hsar_zf_sg,
+            "tumor_sar": tsar_zf_sg,
         },
         {
             "method": "CG-SENSE + Savitzky-Golay EPT",
             "b0_tesla": 3.0,
             "zf_psnr": zf_psnr_3t,
+            "cg_psnr": cg_psnr_3t,
             "psnr_db": cg_psnr_3t,
             "ssim": cg_ssim_3t,
             "nrmse_sigma": nrmse_sig_cg_sg,
             "nrmse_eps": nrmse_eps_cg_sg,
             "tumor_sigma": tsig_cg_sg,
+            "tumor_sigma_gt": roi_full_3t["tumor_sigma_gt"],
+            "tumor_eps": teps_cg_sg,
+            "tumor_eps_gt": roi_full_3t["tumor_eps_gt"],
+            "healthy_sar": hsar_cg_sg,
+            "tumor_sar": tsar_cg_sg,
         },
         {
             "method": "CG-SENSE + cr-MREPT (Convección-Reacción)",
             "b0_tesla": 3.0,
             "zf_psnr": zf_psnr_3t,
+            "cg_psnr": cg_psnr_3t,
             "psnr_db": cg_psnr_3t,
             "ssim": cg_ssim_3t,
             "nrmse_sigma": nrmse_sig_cg_cr,
             "nrmse_eps": nrmse_eps_cg_sg,
             "tumor_sigma": tsig_cg_cr,
+            "tumor_sigma_gt": roi_full_3t["tumor_sigma_gt"],
+            "tumor_eps": teps_cg_sg,
+            "tumor_eps_gt": roi_full_3t["tumor_eps_gt"],
+            "healthy_sar": hsar_cg_cr,
+            "tumor_sar": tsar_cg_cr,
         },
         {
             "method": "Ablación 1: Imagen PINN-SENSE + SG-EPT Post-hoc",
             "b0_tesla": 3.0,
             "zf_psnr": zf_psnr_3t,
+            "cg_psnr": cg_psnr_3t,
             "psnr_db": h_no_ept[-1].psnr_db,
             "ssim": h_no_ept[-1].ssim,
             "nrmse_sigma": nrmse_sig_pinn_sg,
             "nrmse_eps": nrmse_eps_pinn_sg,
             "tumor_sigma": tsig_pinn_sg,
+            "tumor_sigma_gt": roi_full_3t["tumor_sigma_gt"],
+            "tumor_eps": teps_pinn_sg,
+            "tumor_eps_gt": roi_full_3t["tumor_eps_gt"],
+            "healthy_sar": hsar_pinn_sg,
+            "tumor_sar": tsar_pinn_sg,
         },
         {
             "method": "Ablación 2: PINN sin Desenvolvimiento $\\mathbb{S}^1$ ($2\\pi$)",
             "b0_tesla": 7.0,
             "zf_psnr": zf_psnr_7t,
+            "cg_psnr": cg_psnr_7t,
             "psnr_db": h_no_s1_7t[-1].psnr_db,
             "ssim": h_no_s1_7t[-1].ssim,
             "nrmse_sigma": h_no_s1_7t[-1].nrmse_sigma,
             "nrmse_eps": h_no_s1_7t[-1].nrmse_eps,
             "tumor_sigma": roi_no_s1_7t["tumor_sigma_pred"],
+            "tumor_sigma_gt": roi_no_s1_7t["tumor_sigma_gt"],
+            "tumor_eps": roi_no_s1_7t["tumor_eps_pred"],
+            "tumor_eps_gt": roi_no_s1_7t["tumor_eps_gt"],
+            "healthy_sar": roi_no_s1_7t["healthy_sar_pred"],
+            "tumor_sar": roi_no_s1_7t["tumor_sar_pred"],
         },
         {
             "method": "\\textbf{Propuesta: Decoupled MRI-PINN Completa (3.0 T)}",
             "b0_tesla": 3.0,
             "zf_psnr": zf_psnr_3t,
+            "cg_psnr": cg_psnr_3t,
             "psnr_db": h_full_3t[-1].psnr_db,
             "ssim": h_full_3t[-1].ssim,
             "nrmse_sigma": h_full_3t[-1].nrmse_sigma,
             "nrmse_eps": h_full_3t[-1].nrmse_eps,
             "tumor_sigma": roi_full_3t["tumor_sigma_pred"],
+            "tumor_sigma_gt": roi_full_3t["tumor_sigma_gt"],
+            "tumor_eps": roi_full_3t["tumor_eps_pred"],
+            "tumor_eps_gt": roi_full_3t["tumor_eps_gt"],
+            "healthy_sar": roi_full_3t["healthy_sar_pred"],
+            "tumor_sar": roi_full_3t["tumor_sar_pred"],
         },
         {
             "method": "\\textbf{Propuesta: Decoupled MRI-PINN Completa (7.0 T)}",
             "b0_tesla": 7.0,
             "zf_psnr": zf_psnr_7t,
+            "cg_psnr": cg_psnr_7t,
             "psnr_db": h_full_7t[-1].psnr_db,
             "ssim": h_full_7t[-1].ssim,
             "nrmse_sigma": h_full_7t[-1].nrmse_sigma,
             "nrmse_eps": h_full_7t[-1].nrmse_eps,
             "tumor_sigma": roi_full_7t["tumor_sigma_pred"],
+            "tumor_sigma_gt": roi_full_7t["tumor_sigma_gt"],
+            "tumor_eps": roi_full_7t["tumor_eps_pred"],
+            "tumor_eps_gt": roi_full_7t["tumor_eps_gt"],
+            "healthy_sar": roi_full_7t["healthy_sar_pred"],
+            "tumor_sar": roi_full_7t["tumor_sar_pred"],
         },
     ]
     for r in results["ablation_and_baselines"]:
         print(
-            f"  * {r['method']:<50} | B0={r['b0_tesla']}T | ZF: {r['zf_psnr']:.2f} -> PSNR: {r['psnr_db']:.2f} dB | "
+            f"  * {r['method']:<50} | B0={r['b0_tesla']}T | ZF: {r['zf_psnr']:.2f} | CG: {r['cg_psnr']:.2f} -> PSNR: {r['psnr_db']:.2f} dB | "
             f"SSIM: {r['ssim']:.4f} | NRMSE_sig: {r['nrmse_sigma']:.4f} | NRMSE_eps: {r['nrmse_eps']:.4f} | "
-            f"ROI sig: {r['tumor_sigma']:.2f} S/m"
+            f"ROI sig: {r['tumor_sigma']:.2f}/{r['tumor_sigma_gt']:.2f} S/m | ROI eps: {r['tumor_eps']:.1f}/{r['tumor_eps_gt']:.1f}"
         )
 
     # -------------------------------------------------------------------------
@@ -463,25 +544,37 @@ def main() -> None:
     stress_8x_maps: Dict[str, Dict[str, Any]] = {}
     for acc in [4, 8]:
         for mtype in ["cartesian", "radial", "poisson"]:
-            torch.manual_seed(42)
-            np.random.seed(42)
-            ds = load_h5_kspace_slice(
-                cortical_h5,
-                mask_type=mtype,
-                acceleration=acc,
-                acs_lines=18,
-                b0_tesla=3.0,
-                device=device,
-            )
-            cfg = _base_config(b0_tesla=3.0, mask_type=mtype, acceleration=acc, epochs=epochs)
-            trainer = MRIPINNTrainer(dataset=ds, config=cfg, device=device)
-            history, maps = trainer.train(epochs=epochs, verbose=False)
-            last = history[-1]
-            zf_psnr = compute_psnr(torch.abs(ds.zero_filled), ds.m_mag_gt)
-            zf_ssim = compute_ssim(torch.abs(ds.zero_filled), ds.m_mag_gt)
-            cg_cplx = compute_cg_sense(ds.kspace_masked, trainer.coil_acs_ref, ds.mask)
-            cg_psnr = compute_psnr(torch.abs(cg_cplx), ds.m_mag_gt)
-            roi = _extract_roi_metrics(ds, maps)
+            if acc == 4 and mtype == "poisson":
+                ds = ds_3t
+                last = h_full_3t[-1]
+                maps = m_full_3t
+                zf_psnr = zf_psnr_3t
+                zf_ssim = zf_ssim_3t
+                cg_psnr = cg_psnr_3t
+                roi = roi_full_3t
+            else:
+                torch.manual_seed(108)
+                np.random.seed(108)
+                ds = generate_clinical_in_vivo_brain_phantom(
+                    b0_tesla=3.0,
+                    noise_snr_db=33.0,
+                    mask_type=mtype,
+                    acceleration=acc,
+                    acs_lines=18,
+                    seed=108,
+                    device=device,
+                )
+                torch.manual_seed(108)
+                np.random.seed(108)
+                cfg = _base_config(b0_tesla=3.0, mask_type=mtype, acceleration=acc, epochs=epochs)
+                trainer = MRIPINNTrainer(dataset=ds, config=cfg, device=device)
+                history, maps = trainer.train(epochs=epochs, verbose=False)
+                last = history[-1]
+                zf_psnr = compute_psnr(torch.abs(ds.zero_filled), ds.m_mag_gt)
+                zf_ssim = compute_ssim(torch.abs(ds.zero_filled), ds.m_mag_gt)
+                cg_cplx = compute_cg_sense(ds.kspace_masked, trainer.coil_acs_ref, ds.mask)
+                cg_psnr = compute_psnr(torch.abs(cg_cplx), ds.m_mag_gt)
+                roi = _extract_roi_metrics(ds, maps)
             samp_pct = float(torch.mean(ds.mask).item()) * 100.0
 
             entry = {
@@ -510,7 +603,7 @@ def main() -> None:
             print(
                 f"  * R={acc}x {mtype.upper():9s} ({samp_pct:4.1f}% k-space) | "
                 f"ZF: {zf_psnr:.2f} | CG: {cg_psnr:.2f} -> PINN: {last.psnr_db:.2f} dB (+{last.psnr_db - zf_psnr:.2f} dB) | "
-                f"SSIM: {last.ssim:.4f} | NRMSE_sig: {last.nrmse_sigma:.4f} | ROI sig: {roi['tumor_sigma_pred']:.2f} S/m"
+                f"SSIM: {last.ssim:.4f} | NRMSE_sig: {last.nrmse_sigma:.4f} | NRMSE_eps: {last.nrmse_eps:.4f} | ROI sig: {roi['tumor_sigma_pred']:.2f}/{roi['tumor_sigma_gt']:.2f} S/m"
             )
 
     # -------------------------------------------------------------------------
@@ -518,36 +611,56 @@ def main() -> None:
     # -------------------------------------------------------------------------
     print("\n[Estudio 4/5] Ejecutando Control de Confusion Magnitud vs Conductividad (@ 3.0T, R=4x Poisson)...")
     for cmode, clabel in [
-        ("coupled", "Acoplado Estándar ($|m|_{\\text{ROI}}=1.00, \\sigma_{\\text{ROI}}=1.22$)"),
-        ("sigma_only", "Control A: Isointenso en $|m|$ ($0.61$), Hiper-conductivo ($\\sigma_{\\text{ROI}}=1.22$)"),
-        ("mag_only", "Control B: Hiperintenso en $|m|$ ($1.00$), Isoconductivo ($\\sigma_{\\text{ROI}}=0.34$)"),
+        ("coupled", "Acoplado Estándar ($|m|_{\\text{ROI}}=1.00, \\sigma_{\\text{GT}}=1.20$)"),
+        ("sigma_only", "Control A: Isointenso en $|m|$ ($0.61$), Hiper-conductivo ($\\sigma_{\\text{GT}}=1.20$)"),
+        ("mag_only", "Control B: Hiperintenso en $|m|$ ($1.00$), Isoconductivo ($\\sigma_{\\text{GT}}=0.34$)"),
     ]:
-        torch.manual_seed(42)
-        np.random.seed(42)
-        ds_c = generate_realistic_brain_ept_phantom(
-            b0_tesla=3.0,
-            mask_type="poisson",
-            acceleration=4,
-            contrast_mode=cmode,
-            device=device,
-        )
-        cfg_c = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs)
-        tr_c = MRIPINNTrainer(dataset=ds_c, config=cfg_c, device=device)
-        h_c, m_c = tr_c.train(epochs=epochs, verbose=False)
-        roi_c = _extract_roi_metrics(ds_c, m_c)
+        if cmode == "coupled":
+            ds_c = ds_3t
+            last_c = h_full_3t[-1]
+            zf_c = zf_psnr_3t
+            cg_c = cg_psnr_3t
+            roi_c = roi_full_3t
+        else:
+            torch.manual_seed(108)
+            np.random.seed(108)
+            ds_c = generate_clinical_in_vivo_brain_phantom(
+                b0_tesla=3.0,
+                noise_snr_db=33.0,
+                mask_type="poisson",
+                acceleration=4,
+                seed=108,
+                contrast_mode=cmode,
+                device=device,
+            )
+            torch.manual_seed(108)
+            np.random.seed(108)
+            cfg_c = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs)
+            tr_c = MRIPINNTrainer(dataset=ds_c, config=cfg_c, device=device)
+            h_c, m_c = tr_c.train(epochs=epochs, verbose=False)
+            last_c = h_c[-1]
+            zf_c = compute_psnr(torch.abs(ds_c.zero_filled), ds_c.m_mag_gt)
+            cg_cplx_c = compute_cg_sense(ds_c.kspace_masked, tr_c.coil_acs_ref, ds_c.mask)
+            cg_c = compute_psnr(torch.abs(cg_cplx_c), ds_c.m_mag_gt)
+            roi_c = _extract_roi_metrics(ds_c, m_c)
+
         c_entry = {
             "contrast_mode": cmode,
             "label": clabel,
-            "psnr_db": h_c[-1].psnr_db,
-            "ssim": h_c[-1].ssim,
-            "nrmse_sigma": h_c[-1].nrmse_sigma,
+            "zf_psnr": zf_c,
+            "cg_psnr": cg_c,
+            "psnr_db": last_c.psnr_db,
+            "ssim": last_c.ssim,
+            "nrmse_sigma": last_c.nrmse_sigma,
+            "nrmse_eps": last_c.nrmse_eps,
             "tumor_sigma_gt": roi_c["tumor_sigma_gt"],
             "tumor_sigma_pred": roi_c["tumor_sigma_pred"],
             "healthy_sigma_pred": roi_c["healthy_sigma_pred"],
         }
         results["confounding_controls"].append(c_entry)
         print(
-            f"  * {cmode:<12} | PSNR: {c_entry['psnr_db']:.2f} dB | NRMSE_sig: {c_entry['nrmse_sigma']:.4f} | "
+            f"  * {cmode:<12} | ZF: {zf_c:.2f} | CG: {cg_c:.2f} -> PINN: {c_entry['psnr_db']:.2f} dB | "
+            f"SSIM: {c_entry['ssim']:.4f} | NRMSE_sig: {c_entry['nrmse_sigma']:.4f} | NRMSE_eps: {c_entry['nrmse_eps']:.4f} | "
             f"GT ROI: {c_entry['tumor_sigma_gt']:.2f} S/m -> Pred ROI: {c_entry['tumor_sigma_pred']:.2f} S/m "
             f"(WM sano: {c_entry['healthy_sigma_pred']:.2f} S/m)"
         )
@@ -557,36 +670,61 @@ def main() -> None:
     # -------------------------------------------------------------------------
     print("\n[Estudio 5/5] Evaluando Sensibilidad al Ruido Termico SNR (20, 26, 33, 40 dB @ 3.0T)...")
     for snr_db in [20.0, 26.0, 33.0, 40.0]:
-        torch.manual_seed(42)
-        np.random.seed(42)
-        ds_snr = generate_clinical_in_vivo_brain_phantom(
-            b0_tesla=3.0,
-            noise_snr_db=snr_db,
-            mask_type="poisson",
-            acceleration=4,
-            device=device,
-        )
-        cfg_snr = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs)
-        tr_snr = MRIPINNTrainer(dataset=ds_snr, config=cfg_snr, device=device)
-        h_snr, m_snr = tr_snr.train(epochs=epochs, verbose=False)
-        roi_snr = _extract_roi_metrics(ds_snr, m_snr)
+        if abs(snr_db - 33.0) < 1e-3:
+            ds_snr = ds_3t
+            last_snr = h_full_3t[-1]
+            zf_snr = zf_psnr_3t
+            cg_snr = cg_psnr_3t
+            roi_snr = roi_full_3t
+        else:
+            torch.manual_seed(108)
+            np.random.seed(108)
+            ds_snr = generate_clinical_in_vivo_brain_phantom(
+                b0_tesla=3.0,
+                noise_snr_db=snr_db,
+                mask_type="poisson",
+                acceleration=4,
+                seed=108,
+                device=device,
+            )
+            torch.manual_seed(108)
+            np.random.seed(108)
+            cfg_snr = _base_config(b0_tesla=3.0, mask_type="poisson", acceleration=4, epochs=epochs)
+            tr_snr = MRIPINNTrainer(dataset=ds_snr, config=cfg_snr, device=device)
+            h_snr, m_snr = tr_snr.train(epochs=epochs, verbose=False)
+            last_snr = h_snr[-1]
+            zf_snr = compute_psnr(torch.abs(ds_snr.zero_filled), ds_snr.m_mag_gt)
+            cg_cplx_snr = compute_cg_sense(ds_snr.kspace_masked, tr_snr.coil_acs_ref, ds_snr.mask)
+            cg_snr = compute_psnr(torch.abs(cg_cplx_snr), ds_snr.m_mag_gt)
+            roi_snr = _extract_roi_metrics(ds_snr, m_snr)
         results["snr_sensitivity"].append(
             {
                 "snr_db": snr_db,
-                "psnr_db": h_snr[-1].psnr_db,
-                "ssim": h_snr[-1].ssim,
-                "nrmse_sigma": h_snr[-1].nrmse_sigma,
-                "nrmse_eps": h_snr[-1].nrmse_eps,
+                "zf_psnr": zf_snr,
+                "cg_psnr": cg_snr,
+                "psnr_db": last_snr.psnr_db,
+                "ssim": last_snr.ssim,
+                "nrmse_sigma": last_snr.nrmse_sigma,
+                "nrmse_eps": last_snr.nrmse_eps,
                 "tumor_sigma_pred": roi_snr["tumor_sigma_pred"],
+                "tumor_sigma_gt": roi_snr["tumor_sigma_gt"],
             }
         )
         print(
-            f"  * SNR={snr_db:4.1f} dB | PSNR: {h_snr[-1].psnr_db:.2f} dB | NRMSE_sig: {h_snr[-1].nrmse_sigma:.4f} | "
-            f"NRMSE_eps: {h_snr[-1].nrmse_eps:.4f} | ROI sig: {roi_snr['tumor_sigma_pred']:.2f} S/m"
+            f"  * SNR={snr_db:4.1f} dB | ZF: {zf_snr:.2f} | CG: {cg_snr:.2f} -> PINN: {last_snr.psnr_db:.2f} dB | "
+            f"SSIM: {last_snr.ssim:.4f} | NRMSE_sig: {last_snr.nrmse_sigma:.4f} | "
+            f"NRMSE_eps: {last_snr.nrmse_eps:.4f} | ROI sig: {roi_snr['tumor_sigma_pred']:.2f}/{roi_snr['tumor_sigma_gt']:.2f} S/m"
         )
 
-    # Guardar JSON de telemetria
+    # Guardar JSON de telemetria preservando external_blind_validation si existe
     json_path = out_dir / "benchmark_metrics.json"
+    if json_path.exists():
+        try:
+            old_json = json.loads(json_path.read_text(encoding="utf-8"))
+            if "external_blind_validation" in old_json:
+                results["external_blind_validation"] = old_json["external_blind_validation"]
+        except Exception:
+            pass
     json_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     # -------------------------------------------------------------------------
