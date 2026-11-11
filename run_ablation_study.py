@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 from src.data.kspace_loader import (
-    generate_clinical_in_vivo_brain_phantom,
+    generate_numerical_brain_phantom,
     generate_realistic_brain_ept_phantom,
     generate_shepp_logan_ept_phantom,
     load_h5_kspace_slice,
@@ -182,7 +182,7 @@ def main() -> None:
     save_dataset_to_h5(cortical_ds_base, cortical_h5)
     save_dataset_to_h5(cortical_ds_base, Path("data/raw/sample_brain_8coils.h5"))
 
-    numerical_ds_base = generate_clinical_in_vivo_brain_phantom(device=device)
+    numerical_ds_base = generate_numerical_brain_phantom(device=device)
     save_dataset_to_h5(numerical_ds_base, numerical_h5)
     save_dataset_to_h5(numerical_ds_base, clinical_alias_h5)
 
@@ -209,7 +209,7 @@ def main() -> None:
         for s_idx, sd in enumerate(seeds):
             torch.manual_seed(sd)
             np.random.seed(sd)
-            ds_s = generate_clinical_in_vivo_brain_phantom(
+            ds_s = generate_numerical_brain_phantom(
                 b0_tesla=b0,
                 mask_type="radial",
                 acceleration=4,
@@ -308,12 +308,12 @@ def main() -> None:
     print("\n[Estudio 2/5] Evaluando Referencias Clasicas (CG-SENSE, SG-EPT, cr-MREPT) y Ablaciones (3.0T y 7.0T)...")
     torch.manual_seed(108)
     np.random.seed(108)
-    ds_3t = generate_clinical_in_vivo_brain_phantom(
+    ds_3t = generate_numerical_brain_phantom(
         b0_tesla=3.0, noise_snr_db=33.0, mask_type="poisson", acceleration=4, seed=108, device=device
     )
     torch.manual_seed(108)
     np.random.seed(108)
-    ds_7t = generate_clinical_in_vivo_brain_phantom(
+    ds_7t = generate_numerical_brain_phantom(
         b0_tesla=7.0, noise_snr_db=33.0, mask_type="poisson", acceleration=4, seed=108, device=device
     )
     tmask_3t, hmask_3t = _get_tumor_and_healthy_masks(ds_3t)
@@ -555,7 +555,7 @@ def main() -> None:
             else:
                 torch.manual_seed(108)
                 np.random.seed(108)
-                ds = generate_clinical_in_vivo_brain_phantom(
+                ds = generate_numerical_brain_phantom(
                     b0_tesla=3.0,
                     noise_snr_db=33.0,
                     mask_type=mtype,
@@ -624,7 +624,7 @@ def main() -> None:
         else:
             torch.manual_seed(108)
             np.random.seed(108)
-            ds_c = generate_clinical_in_vivo_brain_phantom(
+            ds_c = generate_numerical_brain_phantom(
                 b0_tesla=3.0,
                 noise_snr_db=33.0,
                 mask_type="poisson",
@@ -679,7 +679,7 @@ def main() -> None:
         else:
             torch.manual_seed(108)
             np.random.seed(108)
-            ds_snr = generate_clinical_in_vivo_brain_phantom(
+            ds_snr = generate_numerical_brain_phantom(
                 b0_tesla=3.0,
                 noise_snr_db=snr_db,
                 mask_type="poisson",

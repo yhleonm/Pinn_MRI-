@@ -687,7 +687,7 @@ def save_dataset_to_h5(dataset: SyntheticPhantomDataset, output_path: str | Path
     return out
 
 
-def generate_clinical_in_vivo_brain_phantom(
+def generate_numerical_brain_phantom(
     height: int = 128,
     width: int = 128,
     num_coils: int = 8,
@@ -726,7 +726,7 @@ def generate_clinical_in_vivo_brain_phantom(
     x = np.linspace(-1.0, 1.0, width, dtype=np.float32)
     yy, xx = np.meshgrid(y, x, indexing="ij")
 
-    # Textura parenquimatosa fina (variabilidad microvascular/mielinica in-vivo)
+    # Textura parenquimatosa sintetica fina (variabilidad tisular sub-voxel)
     tex_raw = rng.normal(0.0, 1.0, size=(height, width)).astype(np.float32)
     tex_smooth = _gaussian_filter_2d(tex_raw, sigma=1.8)
     tex_smooth = tex_smooth / (np.std(tex_smooth) + 1e-6)
@@ -790,3 +790,7 @@ def generate_clinical_in_vivo_brain_phantom(
         fov_y_m=fov_y_m,
         b0_tesla=b0_tesla,
     )
+
+
+# Alias de compatibilidad hacia atras
+generate_clinical_in_vivo_brain_phantom = generate_numerical_brain_phantom
