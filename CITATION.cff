@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "Si utilizas este software o su formulación matemática en tu investigación, por favor cítalo con los siguientes metadatos."
 title: "Reconstrucción en espacio-k, tomografía de propiedades eléctricas y estimación de tasa de absorción específica mediante redes neuronales informadas por la física"
 authors:
-  - family-names: "León-Montañez"
+  - family-names: "León Montañez"
     given-names: "Yerson Hernando"
     orcid: "https://orcid.org/0009-0000-4439-8661"
 version: 1.1.0
