@@ -172,10 +172,9 @@ def main() -> None:
     print(f" Dispositivo: {device} ({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'CPU'})")
     print("=" * 96)
 
-    # 1. Generar fantomas numericos .h5 (con nombres actualizados y alias de compatibilidad)
+    # 1. Generar fantomas numericos .h5
     cortical_h5 = Path("data/cortical_brain_tumor_8coils_3T.h5")
     numerical_h5 = Path("data/numerical_brain_phantom_8coils.h5")
-    clinical_alias_h5 = Path("data/clinical_in_vivo_brain_8coils.h5")
     shepp_h5 = Path("data/shepp_logan_8coils_3T.h5")
 
     cortical_ds_base = generate_realistic_brain_ept_phantom(device=device)
@@ -184,7 +183,6 @@ def main() -> None:
 
     numerical_ds_base = generate_numerical_brain_phantom(device=device)
     save_dataset_to_h5(numerical_ds_base, numerical_h5)
-    save_dataset_to_h5(numerical_ds_base, clinical_alias_h5)
 
     shepp_ds_base = generate_shepp_logan_ept_phantom(device=device)
     save_dataset_to_h5(shepp_ds_base, shepp_h5)

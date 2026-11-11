@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from src.data.kspace_loader import (
     SyntheticPhantomDataset,
     _gabriel_dispersion_scale,
-    generate_clinical_in_vivo_brain_phantom,
+    generate_numerical_brain_phantom,
     generate_realistic_brain_ept_phantom,
     generate_shepp_logan_ept_phantom,
     load_h5_kspace_slice,
@@ -82,12 +82,10 @@ class GPUSessionManager:
         save_dataset_to_h5(cortical_ds, cortical_path)
         sample_path = Path("data/raw/sample_brain_8coils.h5")
         save_dataset_to_h5(cortical_ds, sample_path)
-        clinical_path = Path("data/clinical_in_vivo_brain_8coils.h5")
         numerical_path = Path("data/numerical_brain_phantom_8coils.h5")
-        if not clinical_path.exists() or not numerical_path.exists():
-            clinical_ds = generate_clinical_in_vivo_brain_phantom(device=self.device)
-            save_dataset_to_h5(clinical_ds, clinical_path)
-            save_dataset_to_h5(clinical_ds, numerical_path)
+        if not numerical_path.exists():
+            numerical_ds = generate_numerical_brain_phantom(device=self.device)
+            save_dataset_to_h5(numerical_ds, numerical_path)
         shepp_path = Path("data/shepp_logan_8coils_3T.h5")
         if not shepp_path.exists():
             save_dataset_to_h5(self.dataset, shepp_path)

@@ -1,4 +1,4 @@
-# Decoupled MRI-PINN: Electromagnetic $k$-Space Reconstruction, Electrical Properties Tomography, and Specific Absorption Rate Estimation via Physics-Informed Neural Networks
+# Decoupled MRI-PINN: $k$-Space Reconstruction, Electrical Properties Tomography, and Specific Absorption Rate Estimation via Physics-Informed Neural Networks
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%2B%20CUDA-ee4c2c.svg)](https://pytorch.org/)
